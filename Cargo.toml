@@ -1,12 +1,12 @@
 [package]
 name = "fuzzing_test"
 version = "0.1.0"
-edition = "2021"
-authors = ["Niklas Vogel"]
+edition = "2023"
+authors = ["RP-Cure"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-rpki-testing = {path = "../rpki-rp-testing-tool/"}
+rpki-testing = {git = "https://github.com/rp-cure/CURE-PP.git"}
 bytes		= {version = "1.1.0"}
 #webs = {path = "../webs/"}
 base64 = "0.20.0"
