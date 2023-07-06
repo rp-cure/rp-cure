@@ -12,8 +12,8 @@ use rpki::repository::sigobj::SignedObjectBuilder;
 use rpki::repository::x509::Validity;
 use rpki::rrdp::Hash;
 use rpki::uri;
-use rpki_testing::repository::RepoConfig;
-use rpki_testing::{self, fuzzing_interface, repository};
+use publication_point::repository::RepoConfig;
+use publication_point::{fuzzing_interface, repository};
 mod result_processing;
 mod util;
 use core::panic;
@@ -25,15 +25,11 @@ use std::process::Child;
 
 use crate::vrps_analysis::find_affected_entries;
 
-mod crl;
-mod mft;
-mod cert;
-mod notification;
-mod roa;
-mod snapshot;
+mod fuzzing;
 mod asn1p;
 mod consts;
 mod vrps_analysis;
+mod publication_point;
 
 pub fn get_cwd() -> String {
     env::current_dir().unwrap().into_os_string().into_string().unwrap()
@@ -230,79 +226,8 @@ fn min_ex(){
 
 
 fn main() {
-    vrps_analysis::as_anal3();
-    return;
-    // vrps_analysis::find_dif_roas(None);
-    // return;
-    // let a = "/home/nvogel/Schreibtisch/vanilla_rps/FORT-validator/cache/AA139903/rpkica.twnic.tw/rpki/TWNICCA/HINET/U0x2J0ozCwce_SDbBfbQQpKTdD4.mft";
-    // println!("a: {}", a.contains("/U0x2J0ozCwce_SDbBfbQQpKTdD4"));
-    // return;
-    // vrps_analysis::find_object_differences("roa");
-
-    // return;
-    // vrps_analyi.
-    // test_run();
-    // return;
-    // let b = fs::read("./data/my.server.com/repo/newca/31302e302e302e302f3234203d3e2030.roa").unwrap();
-    // asn1::parse_single::<asn1p::ContentInfo>(&b).unwrap();
-    // println!("Parsing worked");
-    // // t
-    // return;
-    // vrps_analysis::log_folders();
-    // return;
-    // vrps_analysis::indepth_analysis();
-    // return;
-    // min_ex();
-    // return;
-    // vrps_analysis::log_folders();
-    // return;
-
-
-    // let folder_uri = "/home/nvogel/Schreibtisch/testi/data/my.server.com/repo/newca/";
-    // let folder_uri = "/home/nvogel/Schreibtisch/vanilla_rps/routinator/dump/store/rrdp.ripe.net/rpki.ripe.net/repository/DEFAULT/23/d1fd48-916b-4d83-96cc-c910af93e426/1/";
-
-    // vrps_analysis::handle_folder(folder_uri);
-
-    // let re = util::run_rp_processes("error");
-
-    // let (vrps, _, _, roas) = util::get_rp_vrps();
-    // println!("{}", vrps);
-
-    // return;
-
-
-    // let mut conf = repository::create_default_config(consts::domain.to_string());
-    // repository::initialize_repo(&mut conf, false, None);
-    // let (roa, roa_string) = repository::create_random_roa(&conf);
-
-    // let mut file_uri = "rsync://".to_string() + &conf.DOMAIN +  "/" + &conf.BASE_REPO_DIR + "newca/";
-    // file_uri += &repository::file_name_for_object(&roa_string, ".roa");
-
-    // let ret = vrps_analysis::handle_signed_object(&roa, &file_uri, &conf);
-    // repository::write_object_to_disc(&Bytes::from(ret.clone()), "roa", &roa_string, "newca", &conf);
-    // let roa_base_uri = repository::base_repo_uri(&conf.CA_NAME, &conf);
-    // repository::after_roa_creation(&roa_string, roa_base_uri, "newca", Bytes::from(ret.clone()), false, &conf);
-    // repository::add_random_roa(&conf);
-
-
-    // println!("ret: {:?}", base64::encode(ret));
-
-
-    // vrps_analysis::handle_folder("/home/nvogel/git/rpki-fuzzing/data/my.server.com/repo/newca/");
-    // println!("{}", get_issuer_cert_uri());
-    // load_mft();
-    // return;
-    // vrps_analysis::find_dif_roas();
-    // return;
-    // test_run();
-    // return;
 
     let ss = vrps_analysis::analyse_vrps(false).0;
- 
-    // for i in ss[0].iter(){
-    //     println!("{}", i);
-    //     break;
-    // }
 
     util::clear_caches();
     let a: Vec<String> = env::args().collect();
@@ -322,7 +247,7 @@ fn main() {
         return;
 
         let start = std::time::Instant::now();
-        roa::do_both("/home/nvogel/git/rpki-fuzzing/roas_4/", false, "roa", &conf);
+        fuzzing::roa::do_both("/home/nvogel/git/rpki-fuzzing/roas_4/", false, "roa", &conf);
     
         let end = start.elapsed();
         println!("Elapsed time is {}", end.as_millis());
@@ -459,22 +384,22 @@ fn main() {
                 let path = newpath;
     
                 if typ == "mft"{
-                    mft::do_both(&path, true, &conf);
+                    fuzzing::mft::do_both(&path, true, &conf);
                 }
                 else if typ == "crl"{
-                    crl::do_both(&path, &mut conf);
+                    fuzzing::crl::do_both(&path, &mut conf);
                 }
                 else if typ == "roa" {
-                    roa::do_both(&path, true, "roa", &conf);
+                    fuzzing::roa::do_both(&path, true, "roa", &conf);
                 }
                 else if typ == "gbr"{
-                    roa::do_both(&path, true, "gbr", &conf);
+                    fuzzing::roa::do_both(&path, true, "gbr", &conf);
                 }
                 else if typ == "aspa"{
-                    roa::do_both(&path, true, "aspa", &conf);
+                    fuzzing::roa::do_both(&path, true, "aspa", &conf);
                 }
                 else if typ == "cert"{
-                    cert::do_both(&path, &conf);
+                    fuzzing::cert::do_both(&path, &conf);
                 }
                 else{
                     panic!("Unknown object type!");
@@ -780,22 +705,22 @@ fn main() {
     
     
         if typ == "mft"{
-            mft::do_both(&uri, no_ee, &conf);
+            fuzzing::mft::do_both(&uri, no_ee, &conf);
         }
         else if typ == "crl"{
-            crl::do_both(&uri, &mut conf);
+            fuzzing::crl::do_both(&uri, &mut conf);
         }
         else if typ == "roa" {
-            roa::do_both(&uri, no_ee, "roa", &conf);
+            fuzzing::roa::do_both(&uri, no_ee, "roa", &conf);
         }
         else if typ == "gbr"{
-            roa::do_both(&uri, no_ee, "gbr", &conf);
+            fuzzing::roa::do_both(&uri, no_ee, "gbr", &conf);
         }
         else if typ == "aspa"{
-            roa::do_both(&uri, no_ee, "aspa", &conf);
+            fuzzing::roa::do_both(&uri, no_ee, "aspa", &conf);
         }
         else if typ == "cert"{
-            cert::do_both(&uri, &conf);
+            fuzzing::cert::do_both(&uri, &conf);
         }
         else{
             panic!("Unknown object type!");
@@ -857,15 +782,15 @@ fn main() {
 
         let conf = repository::create_default_config(consts::domain.to_string());
         if typ == "mft" {
-            mft::create_objects(uri, amount, dont_move, false, 4000, false);
+            fuzzing::mft::create_objects(uri, amount, dont_move, false, 4000, false);
         } else if typ == "crl"{
-            crl::create_objects(uri, amount, dont_move, false, 4000);
+            fuzzing::crl::create_objects(uri, amount, dont_move, false, 4000);
         }else if typ == "roa" || typ == "aspa" || typ == "gbr"{
             // TODO change this back
-            roa::create_objects(uri, amount, dont_move, false, 10000, false, &typ, &conf);
+            fuzzing::roa::create_objects(uri, amount, dont_move, false, 10000, false, &typ, &conf);
         }
         else if typ == "cert"{
-            cert::create_objects(uri, amount, dont_move, false, 10000);
+            fuzzing::cert::create_objects(uri, amount, dont_move, false, 10000);
         }
         else{
             panic!("Unknown object type generator!");
@@ -911,20 +836,20 @@ fn main() {
             if typ == "mft"{
                 obj_per_iteration = 5000;
 
-                repo_fn = &mft::clear_repo;
-                serialized_obj_fn = &mft::handle_serialized_object;    
+                repo_fn = &fuzzing::mft::clear_repo;
+                serialized_obj_fn = &fuzzing::mft::handle_serialized_object;    
             }
             else if typ == "cert"{
                 obj_per_iteration = 10000;
 
                 repo_fn = &util::clear_repo;
-                serialized_obj_fn = &cert::handle_serialized_object;    
+                serialized_obj_fn = &fuzzing::cert::handle_serialized_object;    
             }
             else if typ == "roa" || typ == "gbr" || typ == "aspa"{
                 obj_per_iteration = 10000;
 
                 repo_fn = &util::clear_repo;
-                serialized_obj_fn = &roa::handle_serialized_object;    
+                serialized_obj_fn = &fuzzing::roa::handle_serialized_object;    
             }
             else{
                 panic!("Unknown object type!");
@@ -948,7 +873,7 @@ fn main() {
                 }
                 let folders = vec!["/home/mirdita/data/xmls/notification/".to_string()];
 
-                let create_fun = notification::create_notifications;
+                let create_fun = fuzzing::notification::create_notifications;
                 let repo_fn = &util::clear_repo;
                 util::start_fuzzing_xml(&typ, folders.clone(), 4000, repo_fn, &create_fun, dont_move);
                 return;
@@ -960,7 +885,7 @@ fn main() {
                 }
                 let folders = vec!["/home/mirdita/data/xmls/snapshot/".to_string()];
 
-                let create_fun = snapshot::create_snapshots;
+                let create_fun = fuzzing::snapshot::create_snapshots;
                 let repo_fn = &util::clear_repo;
                 util::start_fuzzing_xml(&typ, folders.clone(), 4000, repo_fn, &create_fun, dont_move);
                 return;

@@ -1,23 +1,17 @@
-use crate::{util, roa, consts, cert};
+use crate::{util, consts};
 use bytes::Bytes;
-use rpki_testing::repository::RepoConfig;
-use rpki_testing::rp_interaction::{RoaContents, self};
-use rpki_testing::{repository, fuzzing_interface};
-use serde::de::value::I16Deserializer;
+use crate::publication_point::repository::RepoConfig;
+use crate::publication_point::rp_interaction::{RoaContents};
+use crate::publication_point::{repository, fuzzing_interface};
 use core::panic;
-use std::io::Read;
 use std::path::Path;
-use std::process::{Command, Child};
-use std::sync::Mutex;
-use std::{self, thread};
+use std::{self};
 use std::collections::HashSet;
 use std::fs;
-use std::time::{Instant, Duration};
-use crate::mft;
-use std::sync::Arc;
+use std::time::{Instant};
+use crate::fuzzing::{mft, roa, cert, crl};
 use std::str;
 use base64;
-use crate::crl;
 use strsim::jaro;
 
 pub fn test_serialized_file(file_name: &str, typ: &str){

@@ -10,7 +10,7 @@ use rpki::repository::resources::Asn;
 use rpki::repository::resources::IpBlock;
 use rpki::repository::resources::Prefix;
 use rpki::repository::x509::Time;
-use rpki_testing::fuzzing_interface::load_ee_ks;
+use crate::publication_point::fuzzing_interface::load_ee_ks;
 use core::panic;
 use std::cmp::min;
 use std::fs::metadata;
@@ -18,9 +18,9 @@ use std::io::Write;
 use std::net::Ipv4Addr;
 use rand::{thread_rng, Rng};
 use rpki::repository::crypto::PublicKey;
-use rpki_testing::fuzzing_interface::generate_for_roas;
-use rpki_testing::repository::after_roas_creation;
-use rpki_testing::repository::KeyAndSigner;
+use crate::publication_point::fuzzing_interface::generate_for_roas;
+use crate::publication_point::repository::after_roas_creation;
+use crate::publication_point::repository::KeyAndSigner;
 use std::collections::HashSet;
 use std::error::Error;
 use std::fs;
@@ -31,11 +31,11 @@ use std::process;
 use std::process::Child;
 use std::vec;
 
-use rpki_testing::fuzzing_interface;
-use rpki_testing::repository;
-use rpki_testing::repository::RepoConfig;
+use crate::publication_point::fuzzing_interface;
+use crate::publication_point::repository;
+use crate::publication_point::repository::RepoConfig;
 
-use rpki_testing::repository::RPConfig;
+use crate::publication_point::repository::RPConfig;
 use std::process::Command;
 use std::{env, str};
 
@@ -43,14 +43,14 @@ use openssl::pkey::PKey;
 use openssl::pkey::Private;
 use rpki::repository::crypto::softsigner::KeyId;
 use rpki::repository::{crypto::softsigner::OpenSslSigner, oid};
-use rpki_testing::rp_interaction::RoaContents;
+use crate::publication_point::rp_interaction::RoaContents;
 use std::thread;
 
 use chrono;
 use rand::distributions::Alphanumeric;
 use std::fs::read_dir;
 
-use rpki_testing::rp_interaction;
+use crate::publication_point::rp_interaction;
 
 
 pub fn read_rp_log(rp_name: &str) -> String{
@@ -175,8 +175,6 @@ pub fn get_cwd() -> String {
 use std::time::{Duration, Instant};
 
 use crate::consts;
-use crate::notification;
-use crate::result_processing;
 
 pub fn random_file_name() -> String {
     let rand_string: String = thread_rng().sample_iter(&Alphanumeric).take(12).map(char::from).collect();
