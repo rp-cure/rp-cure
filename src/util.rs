@@ -1,8 +1,15 @@
-use bcder::Mode;
+use crate::publication_point::fuzzing_interface::generate_for_roas;
+use crate::publication_point::fuzzing_interface::load_ee_ks;
+use crate::publication_point::repository::after_roas_creation;
+use crate::publication_point::repository::KeyAndSigner;
 use bcder::encode::Values;
+use bcder::Mode;
 use bytes::Bytes;
+use core::panic;
 use ipnet::Ipv4Net;
+use rand::{thread_rng, Rng};
 use rpki::repository::crypto::DigestAlgorithm;
+use rpki::repository::crypto::PublicKey;
 use rpki::repository::manifest::FileAndHash;
 use rpki::repository::manifest::ManifestContent;
 use rpki::repository::resources;
@@ -10,22 +17,15 @@ use rpki::repository::resources::Asn;
 use rpki::repository::resources::IpBlock;
 use rpki::repository::resources::Prefix;
 use rpki::repository::x509::Time;
-use crate::publication_point::fuzzing_interface::load_ee_ks;
-use core::panic;
 use std::cmp::min;
-use std::fs::metadata;
-use std::io::Write;
-use std::net::Ipv4Addr;
-use rand::{thread_rng, Rng};
-use rpki::repository::crypto::PublicKey;
-use crate::publication_point::fuzzing_interface::generate_for_roas;
-use crate::publication_point::repository::after_roas_creation;
-use crate::publication_point::repository::KeyAndSigner;
 use std::collections::HashSet;
 use std::error::Error;
 use std::fs;
+use std::fs::metadata;
 use std::fs::File;
 use std::io::Read;
+use std::io::Write;
+use std::net::Ipv4Addr;
 use std::path::Path;
 use std::process;
 use std::process::Child;
@@ -39,11 +39,11 @@ use crate::publication_point::repository::RPConfig;
 use std::process::Command;
 use std::{env, str};
 
+use crate::publication_point::rp_interaction::RoaContents;
 use openssl::pkey::PKey;
 use openssl::pkey::Private;
 use rpki::repository::crypto::softsigner::KeyId;
 use rpki::repository::{crypto::softsigner::OpenSslSigner, oid};
-use crate::publication_point::rp_interaction::RoaContents;
 use std::thread;
 
 use chrono;
@@ -52,8 +52,7 @@ use std::fs::read_dir;
 
 use crate::publication_point::rp_interaction;
 
-
-pub fn read_rp_log(rp_name: &str) -> String{
+pub fn read_rp_log(rp_name: &str) -> String {
     let cws = get_cwd() + "/";
     // let rp;
     // if rp_name == "octo"{
@@ -64,27 +63,25 @@ pub fn read_rp_log(rp_name: &str) -> String{
     // }
     let rp_output_raw = fs::read_to_string(cws.clone() + "output/" + rp_name + ".error");
     if rp_output_raw.is_err() {
-        println!("Error in reading rp log. Filename: {}, Error: {}", cws.clone() + "output/" + rp_name + ".error", rp_output_raw.err().unwrap());
+        println!(
+            "Error in reading rp log. Filename: {}, Error: {}",
+            cws.clone() + "output/" + rp_name + ".error",
+            rp_output_raw.err().unwrap()
+        );
         return "".to_string();
     } else {
         return rp_output_raw.unwrap();
     }
-    
 }
-
-
 
 pub fn create_cas(amount: u32, confs: Vec<&RepoConfig>, notification_uris: Option<Vec<String>>) -> (Vec<KeyAndSigner>, RepoConfig) {
     // If amount is negative -> Use individual configs
     // If amount is positive -> Use same config for [amount] CAs
-    if amount == 0{
+    if amount == 0 {}
 
-    }
-    
-
-    let iteration_amount = match amount == 0{
+    let iteration_amount = match amount == 0 {
         true => confs.len(),
-        false => amount.try_into().unwrap()
+        false => amount.try_into().unwrap(),
     };
 
     let mut cert_keys = vec![];
@@ -92,39 +89,39 @@ pub fn create_cas(amount: u32, confs: Vec<&RepoConfig>, notification_uris: Optio
     // Use default conf to track CA-Tree because otherwise borrowing doesnt work
     let mut default_conf = repository::create_default_config(consts::domain.to_string());
 
-    for i in 0..iteration_amount{
-        let mut conf = match amount == 0{
+    for i in 0..iteration_amount {
+        let mut conf = match amount == 0 {
             true => confs[i],
             false => confs[0],
         };
         let parent_cert_key_uri_l = conf.BASE_KEY_DIR_l.clone() + "ta.der";
         let parent_repo_uri_l = conf.BASE_REPO_DIR_l.to_string() + "ta/";
 
-
         let notification_uri_b = "https://".to_string() + &conf.DOMAIN + "/" + &conf.BASE_RRDP_DIR_l + "notification.xml";
-        let resource_block = Prefix::new(Ipv4Addr::new(conf.DEFAULT_IPSPACE_FIRST_OCTET, conf.DEFAULT_IPSPACE_SEC_OCTET, 0, 0), conf.DEFAULT_IPSPACE_PREFIX);
+        let resource_block = Prefix::new(
+            Ipv4Addr::new(conf.DEFAULT_IPSPACE_FIRST_OCTET, conf.DEFAULT_IPSPACE_SEC_OCTET, 0, 0),
+            conf.DEFAULT_IPSPACE_PREFIX,
+        );
         let asn_min = Asn::from_u32(0);
         let asn_max = Asn::from_u32(1000);
-    
+
         let issuer_cer_uri = "rsync://".to_string() + &conf.DOMAIN + "/" + &conf.BASE_TA_DIR + "ta.cer";
         let parent_name = "ta";
         let parents_parent_name = "root";
         let ta = false;
 
-
-        let ca_name = match amount == 0{
+        let ca_name = match amount == 0 {
             true => conf.CA_NAME.clone(),
-            false => "ca".to_string() + &i.to_string()
+            false => "ca".to_string() + &i.to_string(),
         };
         let ca_name = "ca".to_string() + &i.to_string();
         default_conf.CA_TREE.insert(ca_name.to_string(), "ta".to_string());
 
         let notification_uri;
-        if notification_uris.clone().is_some(){
+        if notification_uris.clone().is_some() {
             let x = notification_uris.clone().unwrap();
             notification_uri = x[i as usize].clone();
-        }
-        else{
+        } else {
             notification_uri = notification_uri_b.clone();
         }
 
@@ -148,8 +145,6 @@ pub fn create_cas(amount: u32, confs: Vec<&RepoConfig>, notification_uris: Optio
         );
 
         cert_keys.push(cert_key);
-
-
     }
 
     repository::make_manifest("ta", "root", &default_conf);
@@ -162,11 +157,9 @@ pub fn create_cas(amount: u32, confs: Vec<&RepoConfig>, notification_uris: Optio
 
     let notification = repository::create_notification(snapshot_bytes, vec![], n.as_str(), 5, ses, ser, &default_conf);
     repository::write_notification_file(notification, &default_conf).unwrap();
-    
 
     (cert_keys, default_conf)
 }
-
 
 pub fn get_cwd() -> String {
     env::current_dir().unwrap().into_os_string().into_string().unwrap()
@@ -189,15 +182,14 @@ pub fn serialize_data(val: &Vec<(String, Vec<u8>)>) -> String {
     filename
 }
 
-pub fn test_for_crash(folder: &str){
-    for p in fs::read_dir(folder).unwrap(){
+pub fn test_for_crash(folder: &str) {
+    for p in fs::read_dir(folder).unwrap() {
         let bind = p.unwrap().path();
         let path = bind.to_str().unwrap();
         println!("Testing crash {}", path);
         read_serialized_data(path);
     }
 }
-
 
 pub fn read_serialized_data(filename: &str) -> Vec<(String, Vec<u8>)> {
     // Short sleep to ensure file has finished writing
@@ -207,66 +199,66 @@ pub fn read_serialized_data(filename: &str) -> Vec<(String, Vec<u8>)> {
     // println!("Content: {}", s);
 
     let c = serde_json::from_str::<Vec<(String, Vec<u8>)>>(&s);
-    if c.is_err(){
-        println!("Error: File {} could not be read. Maybe wrong file type? ({})", filename, c.err().unwrap());
+    if c.is_err() {
+        println!(
+            "Error: File {} could not be read. Maybe wrong file type? ({})",
+            filename,
+            c.err().unwrap()
+        );
         return vec![];
     }
     c.unwrap()
 }
 
-pub fn decb64(uri: &str) -> Option<Bytes>{
+pub fn decb64(uri: &str) -> Option<Bytes> {
     let con = fs::read_to_string(uri);
-    if con.is_err(){
+    if con.is_err() {
         return None;
     }
     let d = base64::decode(&con.unwrap().trim());
-    if d.is_err(){
+    if d.is_err() {
         return None;
     }
     Some(Bytes::from(d.unwrap()))
 }
-
 
 /*
 Read files from a folder and return the filename together with the filecontent
 */
 pub fn read_files_from_folder(folder: &str, amount: u32) -> Vec<(String, Bytes)> {
     let md = metadata(folder).unwrap();
-    
+
     let mut objects = HashSet::new();
     let obj;
 
-    if md.is_file(){
+    if md.is_file() {
         let con = decb64(folder);
-        if con.is_some(){
+        if con.is_some() {
             obj = (folder.to_string(), con.unwrap());
-        } 
-        else{
+        } else {
             obj = (folder.to_string(), Bytes::from(fs::read(folder).unwrap()));
-        }       
-        objects.insert(obj);
-    }
-    else{
-       
-    let paths = fs::read_dir(folder).unwrap();
-
-
-    let mut read_amount = 0;
-    for path in paths {
-        if read_amount >= amount {
-            break;
         }
+        objects.insert(obj);
+    } else {
+        let paths = fs::read_dir(folder).unwrap();
 
-        read_amount += 1;
+        let mut read_amount = 0;
+        for path in paths {
+            if read_amount >= amount {
+                break;
+            }
 
-        let p = path.unwrap().path();
-        let mut f = File::open(&p).expect("no file found");
-        let metadata = fs::metadata(&p).expect("unable to read metadata");
-        let mut buffer = vec![0; metadata.len() as usize];
-        f.read(&mut buffer).expect("buffer overflow");
-        let b = Bytes::from(buffer);
-        objects.insert((p.file_name().unwrap().to_str().unwrap().to_string(), b));
-    }}
+            read_amount += 1;
+
+            let p = path.unwrap().path();
+            let mut f = File::open(&p).expect("no file found");
+            let metadata = fs::metadata(&p).expect("unable to read metadata");
+            let mut buffer = vec![0; metadata.len() as usize];
+            f.read(&mut buffer).expect("buffer overflow");
+            let b = Bytes::from(buffer);
+            objects.insert((p.file_name().unwrap().to_str().unwrap().to_string(), b));
+        }
+    }
     let obj_vec: Vec<(String, Bytes)> = objects.into_iter().collect();
     obj_vec
 }
@@ -407,21 +399,19 @@ pub fn fileamount_in_folder(dir: &str) -> usize {
     paths.count()
 }
 
-
 pub fn start_processes(binary_location: &str, obj_type: &str, folder_opt: Option<Vec<String>>) -> (Vec<Child>, Vec<String>) {
-    let bf = "/home/mirdita/data/corpus/";
+    let bf = "data/corpus/";
     let mut f = vec![];
- 
-    for i in 0..5{
+
+    for i in 0..5 {
         // f.push(bf.to_string() + obj_type + "-corpus_" + &i.to_string() + "/");
         f.push(bf.to_string() + obj_type + "-corpus_" + &i.to_string() + "/");
         // f.push(bf.to_string() + obj_type + "-seed-corpus_" + &i.to_string() + "/");
     }
     let folders;
-    if folder_opt.is_some(){
+    if folder_opt.is_some() {
         folders = folder_opt.unwrap();
-    }
-    else{
+    } else {
         folders = f;
     }
 
@@ -449,8 +439,7 @@ pub fn start_processes(binary_location: &str, obj_type: &str, folder_opt: Option
     (children, folders)
 }
 
-
-pub fn report_inconsistency(vprs: &str, filename: &str){
+pub fn report_inconsistency(vprs: &str, filename: &str) {
     let cws = get_cwd() + "/";
     let reports = cws.clone() + "crash_reports/";
     fs::create_dir_all(reports.clone());
@@ -565,19 +554,17 @@ fn to_uppercase(s: &str) -> String {
     }
 }
 
-
-pub fn remove_folder_content(folder: &str){
+pub fn remove_folder_content(folder: &str) {
     let paths = fs::read_dir(folder);
-    if paths.is_err(){
+    if paths.is_err() {
         return;
     }
     let paths = paths.unwrap();
     for path in paths {
         let p = path.unwrap().path();
-        if p.is_file(){
+        if p.is_file() {
             fs::remove_file(p).unwrap();
-        }
-        else{
+        } else {
             remove_folder_content(p.to_str().unwrap());
         }
     }
@@ -593,15 +580,16 @@ pub fn clear_repo(conf: &RepoConfig, _: u32) {
     remove_folder_content(&(cwd.clone() + "/rpki_cache_fort"));
     remove_folder_content(&(cwd.clone() + "/rpki_cache_routinator"));
 
+    fs::remove_dir_all(cwd.clone() + "/rpki_cache_client").unwrap();
+    fs::remove_dir_all(cwd.clone() + "/rpki_cache_octo").unwrap();
+    fs::remove_dir_all(cwd.clone() + "/rpki_cache_fort").unwrap();
+    fs::remove_dir_all(cwd.clone() + "/rpki_cache_routinator").unwrap();
 
     fs::create_dir_all(cwd.clone() + "/rpki_cache_client");
     fs::create_dir_all(cwd.clone() + "/rpki_cache_octo");
     fs::create_dir_all(cwd.clone() + "/rpki_cache_fort");
     fs::create_dir_all(cwd.clone() + "/rpki_cache_routinator");
-
 }
-
-
 
 /**
  * Create a manifest from the CRL content to have valid parsing of the CRL
@@ -648,7 +636,6 @@ pub fn custom_manifest(ca_name: &str, filenames: Vec<&str>, contents: Vec<Bytes>
     e
 }
 
-
 pub fn create_manifest(
     conf: &RepoConfig,
     ca_name: &str,
@@ -667,9 +654,14 @@ pub fn create_manifest(
     crl_uri.push_str(&filename);
     crl_uri.push_str(".crl");
 
-    let roa_uri = storage_base_uri.clone()  + "123.roa";
+    let roa_uri = storage_base_uri.clone() + "123.roa";
 
-    let mft_content = custom_manifest(ca_name, vec![&(filename + ".crl"), &roa_content.1], vec![crl_content, roa_content.0], conf);
+    let mft_content = custom_manifest(
+        ca_name,
+        vec![&(filename + ".crl"), &roa_content.1],
+        vec![crl_content, roa_content.0],
+        conf,
+    );
     let re = fuzzing_interface::generate_signed_data_from_bytes(
         mft_content,
         &conf,
@@ -681,7 +673,7 @@ pub fn create_manifest(
         priv_key,
         pub_key,
         ca_name,
-        None
+        None,
     );
     re
 }
@@ -696,16 +688,21 @@ pub fn clear_repo_full(conf: &RepoConfig, _: u32) {
     fs::remove_dir_all(cwd.clone() + "/rpki_cache_octo").unwrap();
     fs::remove_dir_all(cwd.clone() + "/rpki_cache_fort").unwrap();
     fs::remove_dir_all(cwd.clone() + "/rpki_cache_routinator").unwrap();
-
 }
 
-pub fn create_example_mfts(cert_keys: &Vec<KeyAndSigner>, amount: u32, roas: &Vec<(Bytes, String)>, crls: &Vec<(Bytes, String)>, conf: &RepoConfig) -> Vec<(Bytes, String)> {
+pub fn create_example_mfts(
+    cert_keys: &Vec<KeyAndSigner>,
+    amount: u32,
+    roas: &Vec<(Bytes, String)>,
+    crls: &Vec<(Bytes, String)>,
+    conf: &RepoConfig,
+) -> Vec<(Bytes, String)> {
     let (priv_keys, pub_keys) = load_ee_ks(conf, amount, false);
 
     let mut ret = vec![];
-    for o in 0..amount{
+    for o in 0..amount {
         let i = o as usize;
-        let ca_name = "ca".to_string() + &i.to_string(); 
+        let ca_name = "ca".to_string() + &i.to_string();
         let cert_key_uri = conf.BASE_KEY_DIR_l.clone() + &ca_name + ".der";
         let mft = create_manifest(
             &conf,
@@ -720,24 +717,20 @@ pub fn create_example_mfts(cert_keys: &Vec<KeyAndSigner>, amount: u32, roas: &Ve
         );
         let name = cert_keys[i].get_pub_key().key_identifier().to_string() + ".mft";
         ret.push((mft, name));
-
     }
     ret
 }
 
 pub fn create_example_crls(cert_keys: &Vec<KeyAndSigner>, amount: u32, conf: &RepoConfig) -> Vec<(Bytes, String)> {
     let mut ret = vec![];
-    for i in 0..amount{
+    for i in 0..amount {
         let cert_key_uri = conf.BASE_KEY_DIR_l.clone() + &("ca".to_string() + &i.to_string()) + ".der";
         let crl_bytes = repository::create_default_crl_i(1, vec![], &cert_key_uri, &("ca".to_string() + &i.to_string()), false, conf);
         let name = cert_keys[i as usize].get_pub_key().key_identifier().to_string() + ".crl";
         ret.push((crl_bytes, name));
     }
     ret
-
 }
-
-
 
 pub fn create_example_roas(cert_keys: &Vec<KeyAndSigner>, amount: u32, conf: &RepoConfig) -> Vec<(Bytes, String)> {
     let mut ret = vec![];
@@ -745,7 +738,7 @@ pub fn create_example_roas(cert_keys: &Vec<KeyAndSigner>, amount: u32, conf: &Re
     let (priv_keys, pub_keys) = load_ee_ks(&conf, amount, true);
     // let (cert_keys, _) = create_cas(amount, vec![&mut conf], None);
 
-    for i in 0..amount{
+    for i in 0..amount {
         let ca_name = "ca".to_string() + &i.to_string();
         // let parent_uri = "rsync://".to_string() + &conf.DOMAIN + "/" + &conf.BASE_REPO_DIR + &conf.CA_TREE[&ca_name] + "/" + &ca_name + ".cer";
         let cert_key_uri = conf.BASE_KEY_DIR_l.clone() + "newca" + ".der";
@@ -769,10 +762,8 @@ pub fn create_example_roas(cert_keys: &Vec<KeyAndSigner>, amount: u32, conf: &Re
             priv_keys[i as usize].clone(),
             pub_keys[i as usize].clone(),
             &ca_name,
-            None
+            None,
         );
-
-
 
         // let roa_bytes = repository::make_default_roa(&parent_uri,
         //     &roa_string,
@@ -788,9 +779,7 @@ pub fn create_example_roas(cert_keys: &Vec<KeyAndSigner>, amount: u32, conf: &Re
     ret
 }
 
-
 pub fn get_request(uri: &str) -> Option<String> {
-    //let uri = "http://127.0.0.1:8887/home/nvogel/rpki-fuzzing/output/outfile_octo.txt";
     println!("Running request: {}", uri);
     let res_t = reqwest::blocking::get(uri);
     if res_t.is_err() {
@@ -838,7 +827,6 @@ pub fn store_vrps(serialized_file_name: &str) -> (bool, String) {
     let (vrps, iden, _, _) = get_rp_vrps();
     let dont_store = false;
 
-
     // If we do not want to store or the objects are identical anyway -> Do not store them
     if dont_store || iden {
         return (iden, "".to_string());
@@ -853,7 +841,6 @@ fn hashset(data: &Vec<RoaContents>) -> HashSet<u32> {
 }
 
 pub fn get_rp_vrps() -> (String, bool, Vec<String>, Vec<Vec<RoaContents>>) {
-    // OCTO curl 127.0.0.1:8887/home/nvogel/rpki-fuzzing/output/outfile_octo.txt
     // ROUTINATOR curl 127.0.0.1:8888/csv
 
     let cws = get_cwd() + "/";
@@ -867,7 +854,7 @@ pub fn get_rp_vrps() -> (String, bool, Vec<String>, Vec<Vec<RoaContents>>) {
     if rt_raw.is_ok() {
         (routinator_data, rout_con) = create_csv_data(Some(rt_raw.unwrap()), true);
     }
-    if routinator_data == ""{
+    if routinator_data == "" {
         routinator_data = "\n".to_string();
     }
 
@@ -878,10 +865,9 @@ pub fn get_rp_vrps() -> (String, bool, Vec<String>, Vec<Vec<RoaContents>>) {
     if octo_raw.is_ok() {
         (octo_data, octo_con) = create_csv_data(Some(octo_raw.unwrap().clone()), false);
     }
-    if octo_data == ""{
+    if octo_data == "" {
         octo_data = "\n".to_string();
     }
-
 
     let fort_uri = cws.clone() + "/output/vrps_fort.txt";
     let fort_raw = fs::read_to_string(fort_uri);
@@ -890,7 +876,7 @@ pub fn get_rp_vrps() -> (String, bool, Vec<String>, Vec<Vec<RoaContents>>) {
     if fort_raw.is_ok() {
         (fort_data, fort_con) = create_csv_data(Some(fort_raw.unwrap()), true);
     }
-    if fort_data == ""{
+    if fort_data == "" {
         fort_data = "\n".to_string();
     }
 
@@ -901,11 +887,12 @@ pub fn get_rp_vrps() -> (String, bool, Vec<String>, Vec<Vec<RoaContents>>) {
     if client_raw.is_ok() {
         (client_data, client_con) = create_csv_data(Some(client_raw.unwrap()), true);
     }
-    if client_data == ""{
+    if client_data == "" {
         client_data = "\n".to_string();
     }
 
-    let a = hashset(&rout_con) == hashset(&octo_con) && hashset(&rout_con) == hashset(&fort_con) && hashset(&rout_con) == hashset(&client_con);
+    let a =
+        hashset(&rout_con) == hashset(&octo_con) && hashset(&rout_con) == hashset(&fort_con) && hashset(&rout_con) == hashset(&client_con);
     let b = hashset(&octo_con) == hashset(&fort_con) && hashset(&octo_con) == hashset(&client_con);
     let c = hashset(&fort_con) == hashset(&client_con);
 
@@ -933,22 +920,20 @@ pub fn get_rp_vrps() -> (String, bool, Vec<String>, Vec<Vec<RoaContents>>) {
 
     // println!("Max length is {}", max_len);
 
-    if max_len == 1{
+    if max_len == 1 {
         ret += &("Routinator:\n ".to_string() + &routinator_data + "");
         ret += &("Octorpki:\n ".to_string() + &octo_data + "");
         ret += &("Fort:\n ".to_string() + &fort_data + "");
         ret += &("Client:\n ".to_string() + &client_data + "");
-    }
-    else{
+    } else {
         ret += &("Routinator:\n ".to_string() + &routinator_data + "\n\n");
         ret += &("Octorpki:\n ".to_string() + &octo_data + "\n\n");
         ret += &("Fort:\n ".to_string() + &fort_data + "\n\n");
         ret += &("Client:\n ".to_string() + &client_data + "\n\n");
     }
-   
 
     let v = rout_con.len() == octo_con.len() && fort_con.len() == client_con.len() && fort_con.len() == rout_con.len();
-    if !v{
+    if !v {
         // println!("Routinator");
         // for v in &rout_con{
         //     println!("{}", roa_con_to_string(&v));
@@ -965,9 +950,7 @@ pub fn get_rp_vrps() -> (String, bool, Vec<String>, Vec<Vec<RoaContents>>) {
         // for v in &client_con{
         //     println!("{}", roa_con_to_string(&v));
         // }
-
     }
-
 
     // println!("VRPS Length Routinator: {}", rout_con.len());
     // println!("VRPS Length Octo: {}", octo_con.len());
@@ -981,8 +964,7 @@ pub fn get_rp_vrps() -> (String, bool, Vec<String>, Vec<Vec<RoaContents>>) {
     (ret, identical, smaller_rps, vec![rout_con, octo_con, fort_con, client_con])
 }
 
-
-pub fn roa_con_to_string(c: &RoaContents) -> String{
+pub fn roa_con_to_string(c: &RoaContents) -> String {
     let mut ret = "".to_string();
     ret += &c.ip_addr.to_string();
     ret += ",";
@@ -994,7 +976,6 @@ pub fn roa_con_to_string(c: &RoaContents) -> String{
 }
 
 pub fn get_rp_vrps_server() -> (String, bool) {
-    // OCTO curl 127.0.0.1:8887/home/nvogel/rpki-fuzzing/output/outfile_octo.txt
     // ROUTINATOR curl 127.0.0.1:8888/csv
 
     let cws = get_cwd() + "/";
@@ -1029,11 +1010,11 @@ pub fn get_rp_vrps_server() -> (String, bool) {
     ret += &("Fort: ".to_string() + &fort_data + "\n\n");
     ret += &("Client: ".to_string() + &client_data + "\n\n");
 
-    let a = hashset(&rout_con) == hashset(&octo_con) && hashset(&rout_con) == hashset(&fort_con) && hashset(&rout_con) == hashset(&client_con);
+    let a =
+        hashset(&rout_con) == hashset(&octo_con) && hashset(&rout_con) == hashset(&fort_con) && hashset(&rout_con) == hashset(&client_con);
     let b = hashset(&octo_con) == hashset(&fort_con) && hashset(&octo_con) == hashset(&client_con);
     let c = hashset(&fort_con) == hashset(&client_con);
     let identical = a && b && c;
-
 
     (ret, identical)
 }
@@ -1046,14 +1027,12 @@ pub fn get_fileamount_folders(folders: Vec<String>) -> u32 {
     total.try_into().unwrap()
 }
 
-
-pub fn clear_caches(){
+pub fn clear_caches() {
     let cws = get_cwd() + "/";
     remove_folder_content(&(cws.clone() + "rpki_cache_client"));
     remove_folder_content(&(cws.clone() + "rpki_cache_octo"));
     remove_folder_content(&(cws.clone() + "rpki_cache_fort"));
     remove_folder_content(&(cws.clone() + "rpki_cache_routinator"));
-
 
     fs::create_dir_all(cws.clone() + "/rpki_cache_client");
     fs::create_dir_all(cws.clone() + "/rpki_cache_octo");
@@ -1061,56 +1040,57 @@ pub fn clear_caches(){
     fs::create_dir_all(cws.clone() + "/rpki_cache_routinator");
 }
 
-
-
-pub fn check_rp_crash() -> Vec<(String, bool)>{
+pub fn check_rp_crash() -> Vec<(String, bool)> {
     let fc = create_client_config().outfile + "vrps_client.txt";
     let fr = create_routinator_config().outfile;
     let fo = create_octorpki_config().outfile;
-    let ff = create_fort_config().outfile;  
+    let ff = create_fort_config().outfile;
 
     let c_crash = !Path::new(&fc).exists();
     let r_crash = !Path::new(&fr).exists();
     let o_crash = !Path::new(&fo).exists();
     let f_crash = !Path::new(&ff).exists();
-    vec![("client".to_string(), c_crash), ("routinator".to_string(), r_crash), ("octorpki".to_string(), o_crash), ("fort".to_string(), f_crash)]
+    vec![
+        ("client".to_string(), c_crash),
+        ("routinator".to_string(), r_crash),
+        ("octorpki".to_string(), o_crash),
+        ("fort".to_string(), f_crash),
+    ]
 }
 
-pub fn run_rp_mp(name: &str, log_level: &str) -> Child{
-    if name == "routinator"{
+pub fn run_rp_mp(name: &str, log_level: &str) -> Child {
+    if name == "routinator" {
         let routinator_conf = create_routinator_config();
         rp_interaction::run_update_routinator_p_non_blocking(&routinator_conf, log_level)
-    }
-    else if name == "fort"{
+    } else if name == "fort" {
         let fort_conf = create_fort_config();
         rp_interaction::run_update_fort_p_non_blocking(&fort_conf, log_level)
-    }
-    else if name == "octorpki"{
+    } else if name == "octorpki" {
         let octo_conf = create_octorpki_config();
         rp_interaction::run_update_octorpki_p_non_blocking(&octo_conf, log_level)
-    }
-    else if name == "rpki-client"{
+    } else if name == "rpki-client" {
         let client_conf = create_client_config();
         rp_interaction::run_update_rpki_client_p_non_blocking(&client_conf, log_level)
-    }
-    else{
+    } else {
         panic!("Unknown rp name");
     }
-    
 }
-pub fn check_process_running(child: &mut Child) -> bool{
+pub fn check_process_running(child: &mut Child) -> bool {
     match child.try_wait() {
         Ok(Some(status)) => {
             // println!("Status {}", status);
             return false;
         }
-        Ok(None) => {return true;}
-        Err(e) => {return true;}
+        Ok(None) => {
+            return true;
+        }
+        Err(e) => {
+            return true;
+        }
     };
 }
 
-
-pub fn run_rp_processes(log_level: &str) -> Vec<(String, bool)>{
+pub fn run_rp_processes(log_level: &str) -> Vec<(String, bool)> {
     let mut children = vec![];
     children.push(run_rp_mp("fort", log_level));
     children.push(run_rp_mp("rpki-client", log_level));
@@ -1122,43 +1102,39 @@ pub fn run_rp_processes(log_level: &str) -> Vec<(String, bool)>{
 
     loop {
         let mut finished = true;
-        for i in 0..children.len(){
+        for i in 0..children.len() {
             let child = &mut children[i];
             let r = check_process_running(child);
-            if r{
+            if r {
                 finished = false;
-            }
-            else{
+            } else {
                 let elapsed = start.elapsed();
-                if !already_finished.contains(&i){
+                if !already_finished.contains(&i) {
                     already_finished.push(i);
                     // println!("{} finished in {}ms", i, elapsed.as_millis());
-
                 }
-
             }
         }
         if finished {
             break;
         }
         thread::sleep(Duration::from_millis(10));
-
     }
 
     // This is necessary because client always writes outfile to outfile/csv
     let client_conf = create_client_config();
-    fs::copy(&(client_conf.outfile.clone() + "csv"), &(client_conf.outfile.clone() + "vrps_client.txt"));
-
-
+    fs::copy(
+        &(client_conf.outfile.clone() + "csv"),
+        &(client_conf.outfile.clone() + "vrps_client.txt"),
+    );
 
     check_rp_crash()
 }
 
-
-pub fn handle_crashes(pot_crashes: Vec<(String, bool)>, obj_type: &str, file_name: &str) -> bool{
+pub fn handle_crashes(pot_crashes: Vec<(String, bool)>, obj_type: &str, file_name: &str) -> bool {
     let mut something_crashed = false;
-    for p in pot_crashes{
-        if p.1{
+    for p in pot_crashes {
+        if p.1 {
             report_crash(&p.0, obj_type, file_name, false);
             something_crashed = true;
         }
@@ -1166,8 +1142,7 @@ pub fn handle_crashes(pot_crashes: Vec<(String, bool)>, obj_type: &str, file_nam
     something_crashed
 }
 
-
-pub fn generate_ca_conf(ca_name: String) -> repository::RepoConfig{
+pub fn generate_ca_conf(ca_name: String) -> repository::RepoConfig {
     let domain = consts::domain.to_string();
     let base_dir = "data/".to_string() + &domain + "/";
     let first_octet = 10;
@@ -1178,7 +1153,10 @@ pub fn generate_ca_conf(ca_name: String) -> repository::RepoConfig{
     let ssl_pem_uri_l = "certs/".to_string() + &domain + ".crt";
 
     let ipv4 = vec![Ipv4Net::new(Ipv4Addr::new(first_octet, second_octet, 0, 0), prefix).unwrap()];
-    let ipblocks = vec![(4, IpBlock::from(resources::Prefix::new(Ipv4Addr::new(first_octet, second_octet, 0, 0), prefix)))];
+    let ipblocks = vec![(
+        4,
+        IpBlock::from(resources::Prefix::new(Ipv4Addr::new(first_octet, second_octet, 0, 0), prefix)),
+    )];
 
     let mut c = repository::RepoConfig::new(
         base_dir,
@@ -1192,7 +1170,7 @@ pub fn generate_ca_conf(ca_name: String) -> repository::RepoConfig{
         ca_name.clone(),
         &("_".to_string() + &ca_name),
         ipv4,
-        ipblocks
+        ipblocks,
     );
     c.BASE_KEY_DIR = "data/keys/".to_string();
     c.BASE_TAL_DIR = "data/tals/".to_string();
@@ -1202,20 +1180,14 @@ pub fn generate_ca_conf(ca_name: String) -> repository::RepoConfig{
     c
 }
 
-
-pub fn store_files_xml(files: &Vec<(String, Bytes)>, filename: &str)
-{
+pub fn store_files_xml(files: &Vec<(String, Bytes)>, filename: &str) {
     let mut v = vec![];
-    for f in files{
+    for f in files {
         v.push((f.0.clone(), f.1.to_vec()));
     }
     let s = serde_json::to_string(&v).unwrap();
     fs::write(&filename, s).unwrap();
 }
-
-
-
-
 
 pub fn start_fuzzing_xml(
     obj_type: &str,
@@ -1223,8 +1195,8 @@ pub fn start_fuzzing_xml(
     obj_per_iteration: u32,
     clear_repo_fn: &dyn Fn(&RepoConfig, u32),
     create_file_fn: &dyn Fn(Vec<&RepoConfig>, Vec<(String, Bytes)>),
-    dont_move: bool
-){
+    dont_move: bool,
+) {
     let mut proc_amount = 0;
 
     let totalfiles = get_fileamount_folders(folders.clone());
@@ -1238,9 +1210,9 @@ pub fn start_fuzzing_xml(
     let mut conf = repository::create_default_config(consts::domain.to_string());
 
     repository::initialize_repo(&mut conf, false, None);
-    
+
     let mut confs: Vec<RepoConfig> = vec![];
-    for i in 0..obj_per_iteration{
+    for i in 0..obj_per_iteration {
         let ca_name = "ca".to_string() + &i.to_string();
 
         let mut repo_conf = generate_ca_conf(ca_name.clone());
@@ -1248,7 +1220,7 @@ pub fn start_fuzzing_xml(
     }
 
     let mut nconfs = vec![];
-    for i in 0..confs.len(){
+    for i in 0..confs.len() {
         nconfs.push(&confs[i]);
     }
 
@@ -1256,27 +1228,27 @@ pub fn start_fuzzing_xml(
     let absstart = Instant::now();
 
     create_cas(0, nconfs.clone(), None);
-    for folder in folders.clone(){
-        loop{
+    for folder in folders.clone() {
+        loop {
             let start = Instant::now();
 
             clear_repo_fn(&conf, 0);
             let files = read_files_from_folder(&folder.clone(), obj_per_iteration);
-            if files.len() == 0{
+            if files.len() == 0 {
                 break;
             }
             create_file_fn(nconfs.clone(), files.clone());
 
             let crashes = run_rp_processes("info");
             let (vrps, iden, _, _) = get_rp_vrps();
-            let r =  &random_file_name();
+            let r = &random_file_name();
             let filename = get_cwd() + "/inconsistent_files/" + r;
 
             let c = handle_crashes(crashes, obj_type, &filename);
             if c {
                 store_files_xml(&files, &(filename));
             }
-            if c || !iden{
+            if c || !iden {
                 println!("Found inconsistency!");
                 // store_files_xml(&files, &(filename + ".dump"));
             }
@@ -1284,7 +1256,6 @@ pub fn start_fuzzing_xml(
             //     report_inconsistency(&vrps, r);
             // }
 
-            
             proc_amount += obj_per_iteration;
             totalprocessed += obj_per_iteration;
 
@@ -1314,18 +1285,15 @@ pub fn start_fuzzing_xml(
                         (dur.as_secs_f64() / 3600.0).floor(),
                         absstart.elapsed()
                     );
-                }
-                else{
+                } else {
                     println!("Time is up now");
                 }
-                
+
                 proc_amount = 0;
             }
-
         }
     }
 }
-
 
 pub fn start_fuzzing(
     obj_cache: &str,
@@ -1334,7 +1302,7 @@ pub fn start_fuzzing(
     obj_per_iteration: u32,
     clear_repo_fn: &dyn Fn(&RepoConfig, u32),
     use_serialized_object_fn: &dyn Fn(&str, &RepoConfig, u32, Option<Vec<(Bytes, String)>>, &str),
-    children: &mut Vec<Child>
+    children: &mut Vec<Child>,
 ) {
     let conf = repository::create_default_config(consts::domain.to_string());
 
@@ -1360,13 +1328,10 @@ pub fn start_fuzzing(
     fs::create_dir_all(&(cws.clone() + "crash_reports/"));
 
     loop {
-        
-
         let paths = read_dir(obj_cache.clone()).unwrap();
         let mut found_path = false;
         let mut crash;
         for path in paths {
-
             let st = Instant::now();
 
             let start = Instant::now();
@@ -1375,16 +1340,15 @@ pub fn start_fuzzing(
 
             let p = path.unwrap().path();
             let file_name = p.to_str().unwrap();
-            
 
             let start2 = Instant::now();
             use_serialized_object_fn(file_name, &conf, cur_ind, None, obj_type);
             let end2 = start2.elapsed();
-            
+
             let crashes = run_rp_processes("info");
 
             let (iden, vrps_name) = store_vrps(file_name);
-            let r =  &random_file_name();
+            let r = &random_file_name();
 
             let crash_file_name = incon_file_dir.clone() + "crash-" + &vrps_name + ".dump";
             crash = handle_crashes(crashes, obj_type, &crash_file_name);
@@ -1392,22 +1356,20 @@ pub fn start_fuzzing(
             proc_amount += obj_per_iteration;
             totalprocessed += obj_per_iteration;
 
-
-            if !iden{
+            if !iden {
                 let (_, _, _, ls) = get_rp_vrps();
                 println!("NOT IDENTICAL {:?}", (ls[0].len(), ls[1].len(), ls[2].len(), ls[3].len()));
-            }            
+            }
 
             // If something crashed or the vrps are not identical, store object
             if crash {
                 println!("Crash: File name {}", file_name);
                 fs::rename(file_name, crash_file_name).unwrap();
-            } else if !iden{
+            } else if !iden {
                 let non_iden_file_name = incon_file_dir.clone() + "incon-" + &vrps_name + ".dump";
                 println!("Inconsistency: File name {}", file_name);
                 fs::rename(file_name, non_iden_file_name).unwrap();
-            }
-            else {
+            } else {
                 fs::remove_file(file_name);
             }
             crash = false;
@@ -1446,14 +1408,12 @@ pub fn start_fuzzing(
                         (dur.as_secs_f64() / 3600.0).floor(),
                         absstart.elapsed()
                     );
-                }
-                else{
+                } else {
                     println!("Time is up now");
                 }
-                
+
                 proc_amount = 0;
             }
-
         }
         if !found_path {
             // let mut any_running = false;

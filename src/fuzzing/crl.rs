@@ -12,8 +12,14 @@ use asn1::SimpleAsn1Readable;
 use base64;
 use bcder::encode::{PrimitiveContent, Values};
 
+use crate::asn1p;
+use crate::publication_point::fuzzing_interface;
+use crate::publication_point::repository;
+use crate::publication_point::repository::KeyAndSigner;
+use crate::publication_point::repository::RepoConfig;
 use bcder::{encode, Captured, Mode, OctetString, Oid, Tag};
 use bytes::Bytes;
+use hex;
 use openssl::pkey::PKey;
 use openssl::pkey::Private;
 use openssl::pkey::Public;
@@ -25,10 +31,6 @@ use rpki::repository::crypto::PublicKey;
 use rpki::repository::manifest::{FileAndHash, ManifestContent};
 use rpki::repository::x509::Time;
 use rpki::uri;
-use crate::publication_point::fuzzing_interface;
-use crate::publication_point::repository;
-use crate::publication_point::repository::KeyAndSigner;
-use crate::publication_point::repository::RepoConfig;
 use serde_json::{Result, Value};
 use std::clone;
 use std::fs;
@@ -36,11 +38,6 @@ use std::fs::read_dir;
 use std::str::FromStr;
 use std::thread;
 use std::time::Duration;
-use hex;
-use crate::asn1p;
-
-
-
 
 // Serialize Byte Vector to a random file in obj_cache folder
 pub fn serialize_data(val: &Vec<(String, Vec<u8>, Vec<u8>, Vec<u8>, String)>) -> String {
@@ -80,7 +77,7 @@ pub fn create_objects(folder: String, max_file_amount: u16, dont_move: bool, one
     let output_folder = cws + "obj_cache/";
 
     let (priv_keys, pub_keys) = fuzzing_interface::load_ee_ks(&conf, amount, false);
-    let roas = util::create_example_roas(&cert_keys, amount, &conf);    
+    let roas = util::create_example_roas(&cert_keys, amount, &conf);
 
     loop {
         let data = generate_from_files_plain(&folder, &mut conf, amount, &cert_keys, "crl", &priv_keys, &pub_keys, &roas);
@@ -89,11 +86,10 @@ pub fn create_objects(folder: String, max_file_amount: u16, dont_move: bool, one
             return;
         }
 
-
         serialize_data(&data);
 
         move_files_data(folder.clone().to_string(), &data, dont_move);
-        if oneshot{
+        if oneshot {
             break;
         }
         // If folder is sufficiently full -> Wait
@@ -145,15 +141,12 @@ pub fn generate_from_files_plain(
     objects
 }
 
-
-
 pub fn do_both(obj_folder: &str, conf: &mut RepoConfig) {
     let cws = util::get_cwd() + "/";
     let folder;
-    if obj_folder.starts_with("/"){
+    if obj_folder.starts_with("/") {
         folder = obj_folder.to_string();
-    }
-    else{
+    } else {
         folder = cws.clone() + obj_folder;
     }
     let obj_folder = cws + "obj_cache/";
@@ -161,19 +154,16 @@ pub fn do_both(obj_folder: &str, conf: &mut RepoConfig) {
     fs::remove_dir_all(obj_folder.clone());
     fs::create_dir_all(obj_folder.clone());
     let amount;
-    if fs::metadata(folder.clone()).is_ok() && fs::metadata(folder.clone()).unwrap().is_file(){
+    if fs::metadata(folder.clone()).is_ok() && fs::metadata(folder.clone()).unwrap().is_file() {
         amount = 1;
-    }
-    else{
+    } else {
         amount = read_dir(folder.clone()).unwrap().count();
-            // amount = fs::metadata(folder.clone()).unwrap().;
+        // amount = fs::metadata(folder.clone()).unwrap().;
     }
 
-
-    for i in 0..amount{
+    for i in 0..amount {
         let ca_name = "ca".to_string() + &i.to_string();
         conf.CA_TREE.insert(ca_name, "ta".to_string());
-
     }
 
     create_objects(folder.clone(), 5, true, true, amount.try_into().unwrap());
@@ -201,21 +191,18 @@ pub fn do_both(obj_folder: &str, conf: &mut RepoConfig) {
     }
 }
 
-
-
-pub fn generate_example_crls(){
+pub fn generate_example_crls() {
     let conf = repository::create_default_config(consts::domain.to_string());
     let amount = 12;
-    for i in 0..amount{
+    for i in 0..amount {
         let ca_name = "ca".to_string() + &i.to_string();
         let cert_key = conf.BASE_KEY_DIR_l.clone() + &ca_name + ".der";
         let crl_bytes = repository::create_default_crl(1, vec![], &cert_key, &ca_name, &conf);
-        fs::write(&("/home/nvogel/git/rpki-fuzzing/crl_example/".to_string() + &ca_name + ".crl"), crl_bytes).unwrap();
-    }   
+        fs::write(&("crl_example/".to_string() + &ca_name + ".crl"), crl_bytes).unwrap();
+    }
 }
 
-
-pub fn handle_serialized_object_inner(data: Vec<(String, Vec<u8>, Vec<u8>, Vec<u8>, String)>, start_index: u32, conf: &RepoConfig){
+pub fn handle_serialized_object_inner(data: Vec<(String, Vec<u8>, Vec<u8>, Vec<u8>, String)>, start_index: u32, conf: &RepoConfig) {
     let mut filenames = vec![];
     let mut objects = vec![];
     let mut index = 0;
@@ -241,7 +228,11 @@ pub fn handle_serialized_object_inner(data: Vec<(String, Vec<u8>, Vec<u8>, Vec<u
     alt_con.CA_NAME = "ca0".to_string();
     alt_con.CA_TREE.insert("ca0".to_string(), "ta".to_string());
     // repository::add_roa_str("10.0.0.0/24 => 11111", true, &alt_con);
-    repository::add_roa_str(&(conf.DEFAULT_IPSPACE_FIRST_OCTET.to_string() + "." +  &conf.DEFAULT_IPSPACE_SEC_OCTET.to_string() + ".0.0/24 => 22222"), true, conf);
+    repository::add_roa_str(
+        &(conf.DEFAULT_IPSPACE_FIRST_OCTET.to_string() + "." + &conf.DEFAULT_IPSPACE_SEC_OCTET.to_string() + ".0.0/24 => 22222"),
+        true,
+        conf,
+    );
 
     fs::remove_dir_all(&conf.BASE_RRDP_DIR_l);
     let (session_id, serial_number) = repository::get_current_session_notification(conf);
@@ -257,14 +248,12 @@ pub fn handle_serialized_object_inner(data: Vec<(String, Vec<u8>, Vec<u8>, Vec<u
 
 pub fn handle_serialized_object(path: &str, conf: &RepoConfig, _: u32, _: Option<Vec<(Bytes, String)>>, _: &str) {
     let data = read_serialized_data(path);
-    if data.is_empty(){
+    if data.is_empty() {
         println!("Error: Dump could not be read, maybe wrong file type?");
         return;
     }
     handle_serialized_object_inner(data, 0, conf);
-   
 }
-
 
 pub fn parse_and_sign(data: Bytes, signer: &KeyAndSigner) -> Vec<u8> {
     // return data.into();
@@ -276,7 +265,7 @@ pub fn parse_and_sign(data: Bytes, signer: &KeyAndSigner) -> Vec<u8> {
     let replace_ski = false;
 
     // If this is not valid ASN1 -> Just return the bytes
-    if a.is_err(){
+    if a.is_err() {
         println!("Didnt parse crl");
         return data.into();
     }
@@ -286,25 +275,23 @@ pub fn parse_and_sign(data: Bytes, signer: &KeyAndSigner) -> Vec<u8> {
     let d = asn1::UtcTime::new((chrono::offset::Local::now() + chrono::Duration::days(5)).into()).unwrap();
     let tmp = asn1::write_single(&c).unwrap();
     let a = asn1::parse_single::<asn1::Tlv>(&tmp).unwrap();
-    if change_validity{
+    if change_validity {
         obj.tbsCertList.validity = Some(a);
     }
 
     let tmp = asn1::write_single(&d).unwrap();
     let a = asn1::parse_single::<asn1::Tlv>(&tmp).unwrap();
-    if change_validity{
+    if change_validity {
         obj.tbsCertList.subject = Some(a);
     }
 
     // Make SubjectPublicKeyInfo an empty sequence
-   
 
-    let o = asn1p::SubPubKeyInfo{keyIdentifier: None};
+    let o = asn1p::SubPubKeyInfo { keyIdentifier: None };
     let content = asn1::write_single(&o).unwrap();
     let a = asn1::parse_single::<asn1::Tlv>(&content).unwrap();
-    if replace_ski{
+    if replace_ski {
         obj.tbsCertList.subjectPublicKeyInfo = Some(a);
-
     }
 
     // Replace Issuer with real Issuer
@@ -315,14 +302,14 @@ pub fn parse_and_sign(data: Bytes, signer: &KeyAndSigner) -> Vec<u8> {
     let at = asn1::ObjectIdentifier::from_string("2.5.4.3").unwrap();
     let tmp = asn1::write_single(&at).unwrap();
     let tu = asn1::parse_single::<asn1::Tlv>(&tmp).unwrap();
-    let tuv = asn1p::TypeAndValue{
+    let tuv = asn1p::TypeAndValue {
         attrType: tu,
         attrValue: a,
     };
 
     let a = signer.get_pub_key().key_identifier().to_encoded_bytes(Mode::Der);
 
-    let con = asn1p::AKIContent{
+    let con = asn1p::AKIContent {
         keyIdentifier: Some(&a),
         authorityCertIssuer: None,
         authorityCertSerialNumber: None,
@@ -336,20 +323,17 @@ pub fn parse_and_sign(data: Bytes, signer: &KeyAndSigner) -> Vec<u8> {
 
     let a = asn1::parse_single::<asn1::Tlv>(&issuer_bytes).unwrap();
     let aus = obj.tbsCertList.crlExtensions.clone();
-    
 
-    let newe = asn1p::ExtensionValue{
+    let newe = asn1p::ExtensionValue {
         identifier: asn1::ObjectIdentifier::from_string("2.5.29.35").unwrap(),
         critical: false,
         value: a,
     };
 
-
-
     let b = hex::decode(b"040402020303").unwrap();
 
     let a = asn1::parse_single::<asn1::Tlv>(&b).unwrap();
-    let number_ext = asn1p::ExtensionValue{
+    let number_ext = asn1p::ExtensionValue {
         identifier: asn1::ObjectIdentifier::from_string("2.5.29.20").unwrap(),
         critical: false,
         value: a,
@@ -359,65 +343,56 @@ pub fn parse_and_sign(data: Bytes, signer: &KeyAndSigner) -> Vec<u8> {
     let mut exField = None;
     let ti;
     if aus.is_none() {
-        if obj.tbsCertList.subjectPublicKeyInfo.is_some(){
+        if obj.tbsCertList.subjectPublicKeyInfo.is_some() {
             let t = asn1::write_single(&obj.tbsCertList.subjectPublicKeyInfo.unwrap());
-            if t.is_ok(){
+            if t.is_ok() {
                 ti = t.unwrap();
                 let r = asn1::parse_single::<asn1::SequenceOf<ExtensionValue>>(&ti);
-                if r.is_ok(){
+                if r.is_ok() {
                     exField = Some(r.unwrap());
                 }
             }
-
         }
-    
-    }
-    else{
+    } else {
         exField = Some(aus.unwrap());
     }
 
-    if exField.is_some(){        
+    if exField.is_some() {
         // Adding all remaining extensions
-    
+
         let mut ignored_aki_once = false;
         let mut ignored_number_once = false;
 
         let e = exField.clone().unwrap().into_iter().collect::<Vec<asn1p::ExtensionValue>>();
         for i in 0..e.len() {
             let tmp = &e[i];
-    
-            if tmp.identifier.to_string() == "2.5.29.35" && !ignored_aki_once{
+
+            if tmp.identifier.to_string() == "2.5.29.35" && !ignored_aki_once {
                 ignored_aki_once = true;
                 continue;
             }
 
-
-    
-            let ex = asn1p::ExtensionValue{
+            let ex = asn1p::ExtensionValue {
                 identifier: tmp.identifier.clone(),
                 critical: false,
                 value: tmp.value,
             };
             all_exts.push(ex);
         }
-    }
-    else{
+    } else {
         all_exts.push(number_ext);
     }
     let ww = asn1::SequenceOfWriter::new(all_exts);
-    
+
     let b = asn1::write_single(&ww).unwrap();
     let res = asn1::parse_single::<asn1::SequenceOf<asn1p::ExtensionValue>>(&b).unwrap();
-    if exField.is_some(){
+    if exField.is_some() {
         obj.tbsCertList.crlExtensions = Some(res.clone());
-    }
-    else{
+    } else {
         obj.tbsCertList.subjectPublicKeyInfo = None;
         obj.tbsCertList.crlExtensions = Some(res.clone());
         println!("No Extension field");
     }
-   
-
 
     let w = asn1::SetOfWriter::new(vec![tuv]);
 
@@ -425,21 +400,19 @@ pub fn parse_and_sign(data: Bytes, signer: &KeyAndSigner) -> Vec<u8> {
     let res = asn1::parse_single::<asn1::SetOf<asn1p::TypeAndValue>>(&binding).unwrap();
     let tmp = &obj.tbsCertList.issuer.clone();
     let bin;
-    if tmp.is_some() && change_name{
+    if tmp.is_some() && change_name {
         let mut i = tmp.clone().unwrap();
         let sw = asn1::SequenceOfWriter::new(vec![res]);
         bin = asn1::write_single(&sw).unwrap();
         let res = asn1::parse_single::<asn1::SequenceOf<asn1::SetOf<asn1p::TypeAndValue>>>(&bin).unwrap();
-        obj.tbsCertList.issuer = Some(res);      
+        obj.tbsCertList.issuer = Some(res);
         println!("Replaced issuer");
     }
-    
 
     // Finally, recalculate the Signature
     let content = asn1::write_single(&obj.tbsCertList).unwrap();
     let sig = signer.sign(&content);
     obj.signatureValue = BitString::new(&sig, 0).unwrap();
-
 
     let new_bytes = asn1::write_single(&obj).unwrap();
     new_bytes

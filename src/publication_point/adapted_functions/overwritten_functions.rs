@@ -1044,7 +1044,6 @@ pub fn signed_object_from_content_bytes_alt<S: Signer>(
     // Manually add an IPv4 address to the object
     let addr = Ipv4Addr::new(conf.DEFAULT_IPSPACE_FIRST_OCTET, conf.DEFAULT_IPSPACE_SEC_OCTET, 0, 0);
 
-    println!("Length nowr {}", conf.IPBlocks.len());
     if obj_type == "mft" || obj_type == "gbr" {
         builder.set_as_resources_inherit();
 

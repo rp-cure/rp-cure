@@ -6,9 +6,7 @@ authors = ["RP-Cure"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-#rpki-testing = {git = "https://github.com/rp-cure/CURE-PP.git"}
 bytes		= {version = "1.4.0"}
-#webs = {path = "../webs/"}
 base64 = "0.20.0"
 clap = "4.0.32"
 #rpki		= {version = "0.14.1", features=["repository", "softkeys", "xml", "rrdp", "serde"]} 

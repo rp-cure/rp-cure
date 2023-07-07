@@ -1,17 +1,11 @@
-use bcder::Mode;
 use bcder::encode::{PrimitiveContent, Values};
+use bcder::Mode;
 use bytes::Bytes;
-use hex::ToHex;
-use openssl::pkey::PKey;
+
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
-use result_processing::run_rp;
-use rpki::repository::crypto::softsigner::OpenSslSigner;
-use rpki::repository::resources::{Addr, IpBlock, Prefix, self};
-use rpki::repository::sigobj::SignedObjectBuilder;
-use rpki::repository::x509::Validity;
-use rpki::rrdp::Hash;
-use rpki::uri;
+use rpki::repository::resources::{self, Addr, IpBlock, Prefix};
+
 use publication_point::repository::RepoConfig;
 use publication_point::{fuzzing_interface, repository};
 mod result_processing;
@@ -19,22 +13,21 @@ mod util;
 use core::panic;
 use std::collections::HashMap;
 use std::net::Ipv4Addr;
-use std::{env, vec, thread};
-use std::fs;
 use std::process::Child;
+use std::{env, thread, vec};
+use std::{fmt, fs};
 
 use crate::vrps_analysis::find_affected_entries;
 
-mod fuzzing;
 mod asn1p;
 mod consts;
-mod vrps_analysis;
+mod fuzzing;
 mod publication_point;
-
+mod vrps_analysis;
+use clap::{Arg, ArgGroup, Command, Subcommand};
 pub fn get_cwd() -> String {
     env::current_dir().unwrap().into_os_string().into_string().unwrap()
 }
-
 
 fn create_folders() {
     let cws = get_cwd() + "/";
@@ -45,91 +38,43 @@ fn create_folders() {
     }
 }
 
-fn start_rps() -> (Vec<Child>, Vec<String>) {
-    let mut children = vec![];
-    let mut rp_names = vec![];
-
-    let conf = util::create_routinator_config();
-    let mut child = fuzzing_interface::run_rp_server("routinator", &conf);
-    println!("Info: Started Routinator");
-
-    children.push(child);
-    rp_names.push("routinator".to_string());
-
-    let conf = util::create_fort_config();
-    let mut child = fuzzing_interface::run_rp_server("fort", &conf);
-    println!("Info: Started Fort");
-
-    children.push(child);
-    rp_names.push("fort".to_string());
-
-    let conf = util::create_octorpki_config();
-    let child = fuzzing_interface::run_rp_server("octorpki", &conf);
-    println!("Info: Started Octorpki");
-
-    children.push(child);
-    rp_names.push("octorpki".to_string());
-
-    // let conf = util::create_client_config();
-    // let mut child = fuzzing_interface::run_rp_server("rpki-client", &conf);
-    // children.push(child);
-    // rp_names.push("rpki-client".to_string());
-    println!("Info: RPKI Client is executed every Iteration");
-
-    return (children, rp_names);
-}
-
-
-fn create_normal_repo(){
+fn create_normal_repo() {
     let mut con = repository::create_default_config(consts::domain.to_string());
     repository::initialize_repo(&mut con, false, None);
-    for i in 0..10{
-        let roa_string = con.DEFAULT_IPSPACE_FIRST_OCTET.to_string() + "." + &con.DEFAULT_IPSPACE_SEC_OCTET.to_string() + &".0.0/24 => ".to_string() + &i.to_string();
+    for i in 0..10 {
+        let roa_string = con.DEFAULT_IPSPACE_FIRST_OCTET.to_string()
+            + "."
+            + &con.DEFAULT_IPSPACE_SEC_OCTET.to_string()
+            + &".0.0/24 => ".to_string()
+            + &i.to_string();
         repository::add_roa_str(&roa_string, true, &con);
-
     }
-
-    // let roa_string = con.DEFAULT_IPSPACE_FIRST_OCTET.to_string() + "." + &con.DEFAULT_IPSPACE_SEC_OCTET.to_string() + &".0.0/24 => ".to_string() + &11.to_string();
-    // repository::add_roa_str(&roa_string, true, &con);
-
-
-    // let roa_string = con.DEFAULT_IPSPACE_FIRST_OCTET.to_string() + "." + &con.DEFAULT_IPSPACE_SEC_OCTET.to_string() + &".0.0/24 => ".to_string() + &11.to_string();
-    // repository::add_roa_str(&roa_string, true, &con);
-
 }
 
-
-fn test_run() -> bool{
+fn test_run() -> bool {
     println!("Info: Running Testrun to check if RPs work correctly...");
 
     create_normal_repo();
     util::run_rp_processes("info");
-    let mut con = repository::create_default_config(consts::domain.to_string());
-
     let v = vec!["Routinator", "OctoRPKI", "Fort", "RPKI-Client"];
 
     let (vrps, _, _, cont) = util::get_rp_vrps();
     let mut fault = false;
-    for i in 0..cont.len(){
-        if cont[i].len() != 10{
+    for i in 0..cont.len() {
+        if cont[i].len() != 10 {
             println!("!--> Error in Testrun. {} doesnt seem to work correctly!!", v[i]);
             fault = true;
         }
     }
-    if fault{
+    if fault {
         println!("Debug Info VRPS:\n {:}", vrps);
-    }
-    else{
-        //util::clear_repo(&con, 0);
-    }
-    if fault{
         println!("!--> Error in Testrun. Fix RPs before running fuzzer!!");
-        println!("Maybe webserver points to wrong location or permission problems on a cache folder?");    
+        println!("Maybe webserver points to wrong location or permission problems on a cache folder?");
     }
+    util::clear_caches();
 
     fault
 }
-
 
 #[derive(PartialEq)]
 enum OpMode {
@@ -140,8 +85,52 @@ enum OpMode {
     Vrps,
 }
 
+#[derive(PartialEq)]
+enum OpType {
+    MFT,
+    ROA,
+    CRL,
+    CERT,
+    SNAP,
+    NOTI,
+    ASPA,
+    GBR,
+}
 
-pub fn typ_to_name(typ: &str) -> String{
+impl fmt::Display for OpType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        if self == &OpType::MFT {
+            return write!(f, "mft");
+        }
+        if self == &OpType::ROA {
+            return write!(f, "roa");
+        }
+        if self == &OpType::CRL {
+            return write!(f, "crl");
+        }
+        if self == &OpType::CERT {
+            return write!(f, "cert");
+        }
+        if self == &OpType::SNAP {
+            return write!(f, "snapshot");
+        }
+        if self == &OpType::NOTI {
+            return write!(f, "notification");
+        }
+        if self == &OpType::ASPA {
+            return write!(f, "aspa");
+        }
+        if self == &OpType::GBR {
+            return write!(f, "gbr");
+        }
+        panic!("Error: Unknown OpType");
+
+        // or, alternatively:
+        // fmt::Debug::fmt(self, f)
+    }
+}
+
+pub fn typ_to_name(typ: &str) -> String {
     let mut names = HashMap::new();
     names.insert("roa", "Route Origin Authorization");
     names.insert("mft", "Manifest");
@@ -152,109 +141,113 @@ pub fn typ_to_name(typ: &str) -> String{
     names.insert("snapshot", "Snapshot");
     names.insert("notification", "Notification");
     return names.get(typ).unwrap().to_string();
-
 }
 
-pub fn store_example_roa(){
-    let mut conf = repository::create_default_config("my.server.com".to_string());
-    // let (cert_keys, new_conf) = util::create_cas(10000, vec![&conf], None);
-    // conf.CA_TREE = new_conf.CA_TREE.clone();
+pub fn store_example_roa() {
+    let conf = repository::create_default_config("my.server.com".to_string());
     let cws = util::get_cwd() + "/";
 
-    let roas = util::create_example_roas(&vec![], 10000, &conf);    
+    let roas = util::create_example_roas(&vec![], 10000, &conf);
 
     fs::create_dir_all(cws.clone() + "roas_4/").unwrap();
 
-    for i in roas{
+    for i in roas {
         let con = asn1p::extract_e_content(i.0, Some("roa")).unwrap();
-        let name: String = thread_rng().sample_iter(&Alphanumeric).take(14).map(char::from).collect();    
+        let name: String = thread_rng().sample_iter(&Alphanumeric).take(14).map(char::from).collect();
         fs::write(cws.clone() + "roas_4/" + &name, con).unwrap();
     }
 }
 
-
-
-fn min_to_prefix(addr: Addr) -> Prefix {
-    Prefix::new(addr, 128 - addr.to_bits().trailing_zeros() as u8)
+fn parse_mode(mode: &str) -> OpMode {
+    if mode == "processor" {
+        return OpMode::Processor;
+    } else if mode == "gen" {
+        return OpMode::Generation;
+    } else if mode == "fuzz" {
+        return OpMode::Fuzzer;
+    } else if mode == "run" {
+        return OpMode::Runner;
+    } else if mode == "vrps" {
+        return OpMode::Vrps;
+    } else {
+        panic!("Invalid arguments! Use 'fuzz' to run the fuzzer, 'gen' to generate objects, 'processor' to process results or 'run' for a single run");
+    }
 }
 
-/// Calculates the prefix for the maximum address.
-///
-/// This is a prefix with all trailing ones dropped.
-fn max_to_prefix(addr: Addr) -> Prefix {
-    Prefix::new(addr, 128 - addr.to_bits().trailing_zeros() as u8)
+fn parse_type(typ: &str) -> OpType {
+    if typ == "roa" {
+        return OpType::ROA;
+    } else if typ == "mft" {
+        return OpType::MFT;
+    } else if typ == "crl" {
+        return OpType::CRL;
+    } else if typ == "cert" {
+        return OpType::CERT;
+    } else if typ == "gbr" {
+        return OpType::GBR;
+    } else if typ == "aspa" {
+        return OpType::ASPA;
+    } else if typ == "snapshot" {
+        return OpType::SNAP;
+    } else if typ == "notification" {
+        return OpType::NOTI;
+    } else {
+        panic!("Invalid Object Type! Use 'roa', 'mft', 'crl', 'cert', 'gbr', 'aspa', 'snapshot' or 'notification'");
+    }
 }
-
-fn min_ex(){
-    let ip1 = "10.1.1.0";
-    let ip2 = "11.1.1.0";
-
-    let a = Addr::from_v4_str(ip1).unwrap();
-    let b = Addr::from_v4_str(ip2).unwrap();
-
-    let t = min_to_prefix(a);
-    let t2 = max_to_prefix(b);
-
-    let e = t.encode();
-    let e2 = t2.encode();
-    
-    println!("t1 {:?} t2 {:?}", t, t2);
-
-    println!("t1 {:?} t2 {:?}", e.to_captured(Mode::Der).into_bytes(), e2.to_captured(Mode::Der).into_bytes());
-
-    // let block = IpBlock::from((a, b));
-
-    // let uri = uri::Rsync::from_string("rsync://my.server.com/la/li/lu.file".to_string()).unwrap();
-    // let mut builder = SignedObjectBuilder::new(
-    //     repository::random_serial(),
-    //     Validity::from_secs(286400),
-    //     uri.clone(),
-    //     uri.clone(),
-    //     uri.clone(),
-    // );
-
-    // builder.build_v4_resource_blocks(|b| {
-    //     b.push(block);
-    // });
-    // builder.finalize(content_type, content, signer, issuer_key)
-}
-
-
-
-
-
-
 
 fn main() {
-
-    let ss = vrps_analysis::analyse_vrps(false).0;
-
     util::clear_caches();
-    let a: Vec<String> = env::args().collect();
-    if a.len() == 1{
-        println!("Thiw");
-        // let mut conf = repository::create_default_config(consts::domain.to_string());
-    
-        let mut conf = vrps_analysis::example_bs();
-        repository::initialize_repo(&mut conf, false, None);
-        repository::add_roa_str("1.1.1.0/24 => 1",true, &conf);
-        repository::add_roa_str("1.1.3.0/24 => 2",true, &conf);
-    
-        let re = util::run_rp_processes("error");
+    // let matches = Command::new("CURE")
+    //     .version("1.0")
+    //     .author("RP-CURE-DEV")
+    //     .about("A tool for testing RPKI Relying Party Software")
+    //     .arg(
+    //         Arg::new("uri")
+    //             .required(true)
+    //             .short('u')
+    //             .help("URI of Object/Folder")
+    //             .value_name("URI"),
+    //     )
+    //     .arg(
+    //         Arg::new("type")
+    //             .required(true)
+    //             .short('t')
+    //             .help("Object Type [roa, mft, crl, cert, gbr, aspa, snapshot, or notification]")
+    //             .value_name("TYPE"),
+    //     )
+    //     .subcommand(
+    //         Subcommand::new("run")
+    //             .about("Execute a single run")
+    //             .arg(Arg::new("contains-ee").required(true).short('e').help("Object contains EE-Cert")),
+    //     )
+    //     .subcommand(Subcommand::new("processor").about("Process Results"))
+    //     .subcommand(
+    //         Subcommand::with_name("vrps_analysis").about("Process Results").arg(
+    //             Arg::new("analysis_type")
+    //                 .required(true)
+    //                 .short('a')
+    //                 .help("Analysis Type [folder, raw_folder, cache]"),
+    //         ),
+    //     )
+    //     .subcommand(
+    //         Subcommand::with_name("gen")
+    //             .about("Generate processed Objects")
+    //             .arg(Arg::new("amount").required(false).short('a').help("Max amount of generated Files"))
+    //             .value_name("AMOUNT")
+    //             .arg(
+    //                 Arg::new("dont_move")
+    //                     .required(false)
+    //                     .short('d')
+    //                     .help("Do not delete processed Files [Debugging]"),
+    //             ),
+    //     )
+    //     .subcommand(Subcommand::with_name("fuzz").about("Start the Fuzzer"))
+    //     .get_matches();
 
-        let (vrps, _, _, roas) = util::get_rp_vrps();
-        println!("{}", vrps);
-        return;
+    // println!("{}", matches.get_flag("contains-ee").unwrap());
+    // return;
 
-        let start = std::time::Instant::now();
-        fuzzing::roa::do_both("/home/nvogel/git/rpki-fuzzing/roas_4/", false, "roa", &conf);
-    
-        let end = start.elapsed();
-        println!("Elapsed time is {}", end.as_millis());
-        return;
-    }
-  
-    // Processing results
     let typ;
     let mode;
     let uri;
@@ -264,422 +257,54 @@ fn main() {
 
     let valid_types = vec!["roa", "mft", "crl", "cert", "gbr", "aspa", "snapshot", "notification"];
 
-
-    if a.len() > 1{
-        if a[1] == "processor"{
-            mode = OpMode::Processor;
-        }
-        else if a[1] == "gen"{
-            mode = OpMode::Generation;
-        }
-        else if a[1] == "fuzz"{
-            mode = OpMode::Fuzzer;
-        }
-        else if a[1] == "run"{
-            mode = OpMode::Runner;
-        }
-        else if a[1] == "vrps"{
-            mode = OpMode::Vrps;
-        }
-        else{
-            panic!("Invalid arguments! Use 'fuzz' to run the fuzzer, 'gen' to generate objects, 'processor' to process results or 'run' for a single run");
-        }
-    }
-    else{
+    if a.len() > 1 {
+        mode = parse_mode(&a[1]);
+    } else {
         panic!("Invalid arguments! Use 'fuzz' to run the fuzzer, 'gen' to generate objects, 'processor' to process results or 'run' for a single run");
     }
 
-
-    if a.len() > 2 && valid_types.contains(&a[2].as_str()){
-        typ = a[2].clone();
-    }
-    else{
+    if a.len() > 2 && valid_types.contains(&a[2].as_str()) {
+        typ = parse_type(&a[2]);
+    } else {
         panic!("Invalid arguments! Please provide a Type (roa, mft, crl, cert, gbr, aspa, snapshot, notification)");
     }
 
-
-    if mode != OpMode::Fuzzer{
-        if a.len() > 3{
+    if mode != OpMode::Fuzzer {
+        if a.len() > 3 {
             uri = a[3].clone();
-        }
-        else{
+        } else {
             panic!("Invalid arguments! Please provide a URI to a File or Folder");
         }
-    }
-    else{
+    } else {
         uri = "".to_string();
     }
 
-
     // Some modes need additional info
-    for i in 4..a.len(){
-        if a.len() > i{
+    for i in 4..a.len() {
+        if a.len() > i {
             additional_info.push(a[i].clone());
         }
     }
 
     create_folders();
 
-    if mode == OpMode::Processor{
+    if mode == OpMode::Processor {
         println!("\n\n--- RPKI Result Processor ---\n");
 
         println!("Info: Processing Results");
         println!("This might take a few minutes...");
 
-        result_processing::process_results(&uri, &typ);
+        result_processing::process_results(&uri, &typ.to_string());
         return;
-    }
-    else if mode == OpMode::Vrps{
+    } else if mode == OpMode::Vrps {
         let ty;
-        if additional_info.len() == 0{
+        if additional_info.len() == 0 {
             panic!("Invalid arguments! Please provide information on what to look at (folder, file, cache)");
-        }
-        else{
+        } else {
             ty = additional_info[0].clone();
         }
-
-        let base_routinator = "/home/nvogel/Schreibtisch/vanilla_rps/routinator/dump/stored/";
-        let base_fort = "/home/nvogel/Schreibtisch/vanilla_rps/FORT-validator/cache/";
-        let base_client = "/home/nvogel/Schreibtisch/vanilla_rps/rpki-client-portable/cache/";
-        let base_octo = "/home/nvogel/Schreibtisch/vanilla_rps/cfrpki/cmd/octorpki/cache/";
-        let bases = vec![base_routinator, base_octo, base_fort, base_client];
-
-        let mut report = "--- Inconsistency Report ---\n\n".to_string();
-
-        if ty == "raw_folder"{
-            let paths = fs::read_dir(&uri).unwrap();
-
-            let tmp_folder = get_cwd() + "/tmp/";
-    
-            for path_t in paths{
-                let p = path_t.unwrap();
-                report += "<Inconsistency>\n";
-                report += "Filename: " ;
-                report += p.file_name().to_str().unwrap();
-                report += "\n";
-                let tmp = p.path();
-                let path_pre = tmp.as_os_str().to_string_lossy();
-                let newpath = tmp_folder.clone() + p.file_name().to_str().unwrap();
-                let con = fs::read(&*path_pre).unwrap();
-    
-                let o = vrps_analysis::get_content_ips(Bytes::from(con.clone()));
-                let mut conf = repository::create_default_config("my.server.com".to_string());
-    
-                conf.IPBlocks.extend(o);
-                // conf.IPv4.extend(o1);
-                // conf.IPv6.extend(o2);
-    
-                repository::initialize_repo(&mut conf, false, None);
-    
-                if typ == "mft" || typ == "roa" || typ == "gbr" || typ == "aspa"{
-    
-                    let newcon = vrps_analysis::fix_econtent(Bytes::from(con), &conf);
-                    fs::write(&newpath, newcon).unwrap();
-                }
-                else{
-                    fs::write(&newpath, con).unwrap();
-                }
-    
-    
-                let path = newpath;
-    
-                if typ == "mft"{
-                    fuzzing::mft::do_both(&path, true, &conf);
-                }
-                else if typ == "crl"{
-                    fuzzing::crl::do_both(&path, &mut conf);
-                }
-                else if typ == "roa" {
-                    fuzzing::roa::do_both(&path, true, "roa", &conf);
-                }
-                else if typ == "gbr"{
-                    fuzzing::roa::do_both(&path, true, "gbr", &conf);
-                }
-                else if typ == "aspa"{
-                    fuzzing::roa::do_both(&path, true, "aspa", &conf);
-                }
-                else if typ == "cert"{
-                    fuzzing::cert::do_both(&path, &conf);
-                }
-                else{
-                    panic!("Unknown object type!");
-                }
-                let re = util::run_rp_processes("error");
-                for r in re{
-                    if r.1{
-                        println!("\n\n   ---> RP {} crashed!!\n\n", r.0);
-                    }
-                }
-                let (vrps, _, _, roas) = util::get_rp_vrps();
-                report += "<VRPS>\n";
-                report += &vrps;
-                report += "<Object>\n";
-                report += &base64::encode(fs::read(&*path).unwrap()).to_string();           
-                report += "\n\n";
-    
-                let rp_names = vec!["routinator", "octorpki", "fort", "client"];
-                for n in rp_names{
-                    let l = util::read_rp_log(n);
-                    report += &("<".to_string() + n + " log>\n");
-                    report += &l;
-                    report += "\n\n";
-    
-                }
-                println!("{}", report);
-                return;
-            }
-        }
-        else if ty == "folder"{
-            let mut report = "".to_string();
-            util::clear_caches();
-            report += "<Inconsistency>\n";
-            report += "Folder: " ;
-            report += &uri;
-            report += "\n";
-
-            let err = vrps_analysis::handle_folder(&uri); 
-            if err{
-                println!("Error in parsing MFT, following RPs miss the ROAs");
-                
-                report += "Error while processing folder!";
-            }
-            else{
-                report += "No inconsistencies found!";
-            }
-            
-            let re = util::run_rp_processes("error");
-            for r in re{
-                if r.1{
-                    println!("\n\n   ---> RP {} crashed!!\n\n", r.0);
-                }
-            }
-            let (vrps, diffr, _, roas) = util::get_rp_vrps();
-            if diffr{
-                let (dif, ssets) = vrps_analysis::analyse_vrps(true);
-                let mut sw = 0;
-                for i in 0..ssets.len(){
-                    let rpv = &ssets[i];
-                    for v in rpv{
-                        if ss[i].contains(v){
-                            println!("{} Switched validity {}", i, v);
-                            sw += 1;
-                        }
-                    }
-                }
-                if sw == roas[0].len(){
-                    report += "All ROAs switched Validity -> Likely something wrong with parent!";
-                }
-                report += &format!("No inconsistencies found! {}\n\n", roas[0].len().to_string());
-
-            }
-            else{
-                let rp_names = vec!["routinator", "octorpki", "fort", "client"];
-
-
-                report += "<Differences>\n";
-                for i in 0..rp_names.len(){
-                    continue;
-                    // let d = dif[i].clone().into_iter().map(|x| x.to_string()).collect::<Vec<String>>().join("\n");
-                    // report += &("<Missing from ".to_string() + rp_names[i] + ">\n");
-                    // report += &d;
-                    // report += "\n\n";
-                }
-
-                let d = vrps_analysis::find_dif_roas(Some(vec![&(util::get_cwd().clone() + "/data/my.server.com/repo/newca/")]));
-                report += "<Detailed Info>\n";
-                if d.len() > 5 {
-                    report += "Too many differences to show!\n\n";
-                }
-                else{
-                    for di in d{
-                        continue;
-                        report += "Entry: ";
-                        report += &di.0;
-                        report += "\n";
-                        report += "Object: ";
-                        let obj_enc = base64::encode(fs::read(&di.1).unwrap());
-                        report += &obj_enc;
-                        report += "\n\n";
-                    }
-                } 
-
-                let mut ind = 0;
-                for n in rp_names{
-                    let l = util::read_rp_log(n);
-                    report += &("<".to_string() + n + " log> (Length: " +  &roas[ind].len().to_string() + ")\n");
-                    report += &l;
-                    report += "\n\n";
-                    ind += 1;
-                }
-            }
-
-            
-
-            println!("Report: {}", report);
-
-        }
-        else if ty == "cache"{
-            let folders = fs::read_to_string(&uri).unwrap();
-            let mut skipped_once = true;
-            let mut cu = 0;
-
-            let mut miss_from_rps = vec![0, 0, 0, 0];
-
-            let mut total_subnet = 0;
-            let mut total_prefix = 0;
-
-            println!("total amount {}", folders.split("\n").collect::<Vec<&str>>().len());
-            for f in folders.split("\n"){
-                util::clear_caches();
-                if  f.contains("amazon"){
-                    continue;
-                }
-                cu += 1;
-                println!("CU {}", cu);
-                if cu < 0{
-                    continue;
-                }
-                if cu == 0{
-                    break;
-                }
-                if f.is_empty(){
-                    continue;
-                }
-                if !skipped_once{
-                    skipped_once = true;
-                    continue;
-                }
-
-              
-                let err = vrps_analysis::handle_folder(&f); 
-
-                if err{
-                    report += &format!("Error while processing folder {}!\n\n", &f);
-                    continue;
-                }
-                
-                              
-                let re = util::run_rp_processes("error");
-                for r in re{
-                    if r.1{
-                        println!("\n\n   ---> RP {} crashed!!\n\n", r.0);
-                    }
-                }
-                let (vrps, diffr, _, roas) = util::get_rp_vrps();
-
-
-                if diffr{
-                    let (dif, ssets) = vrps_analysis::analyse_vrps(true);
-                    let mut sw = 0;
-                    for i in 0..ssets.len(){
-                        let rpv = &ssets[i];
-                        for v in rpv{
-                            if ss[i].contains(v){
-                                // println!("{} Switched validity {}", i, v);
-                                sw += 1;
-                            }
-                        }
-                    }
-                    // if sw == roas[0].len(){
-                    report += format!("{} / {} ROAs switched Validity -> Likely something wrong with parent!", sw, roas[0].len()).as_str();
-                    let (tu, nu) = vrps_analysis::check_mft_validity(&f);
-                    report += &format!("Manifest validity {:?} - {:?}", tu, nu);
-
-                    // let ct = chrono::Utc::now();
-
-                        // if ct > nu.as_chrono().to_owned() || ct < tu.as_chrono().to_owned(){
-                        //     report += &format!("Manifest validity {:?} - {:?}", tu, nu);
-                        //     println!("Manifest not valid");
-                        // }
-                        
-                    // }
-
-                    report += &format!("No inconsistencies found! Roa length: {}, Folder: {}\n\n", roas[0].len().to_string(), &f);
-                    continue;
-                }
-
-                let oo = vrps_analysis::check_only_octo(&roas);
-                total_subnet += oo.0;
-                total_prefix += oo.1;
-                if (oo.0 != 0 || oo.1 != 0) && roas[0].len() == roas[1].len() + (oo.0 + oo.1) as usize{
-                    report += &format!("All inconsistencies are Octo Optimizations! {}\n\n", oo.0 + oo.1);
-                    continue;
-                }
-                else{
-                    println!("no octo opti {:?}", oo);
-                }
-
-                let maxi_rp = roas.iter().map(|x| x.len()).max().unwrap();
-                let highest_rp = roas.iter().position(|x| x.len() == maxi_rp).unwrap();
-                let base = bases[highest_rp];
-
-                for i in 0..roas.len(){
-                    if roas[i].len() == 0{
-                        let miss = find_affected_entries(&f, base);
-                        miss_from_rps[i] += miss;
-                    }
-                }
-
-
-
-                report += "<Inconsistency>\n";
-                report += "Folder: " ;
-                report += &f;
-                report += "\n";
- 
-                // report += "<VRPS>\n";
-                // report += &vrps;
-                let rp_names = vec!["routinator", "octorpki", "fort", "client"];
-
-                report += "<Differences>\n";
-                for i in 0..rp_names.len(){
-                    continue;
-                    // let d = dif[i].clone().into_iter().map(|x| x.to_string()).collect::<Vec<String>>().join("\n");
-                    // report += &("<Missing from ".to_string() + rp_names[i] + ">\n");
-                    // report += &d;
-                    // report += "\n\n";
-                }
-
-                let d = vrps_analysis::find_dif_roas(Some(vec![&(util::get_cwd().clone() + "/data/my.server.com/repo/newca/")]));
-                report += "<Detailed Info>\n";
-                if d.len() > 5 {
-                    report += "Too many differences to show!\n\n";
-                }
-                else{
-                    for di in d{
-                        continue;
-                        report += "Entry: ";
-                        report += &di.0;
-                        report += "\n";
-                        report += "Object: ";
-                        let obj_enc = base64::encode(fs::read(&di.1).unwrap());
-                        report += &obj_enc;
-                        report += "\n\n";
-                    }
-                } 
-
-                let mut ind = 0;
-                for n in rp_names{
-                    let l = util::read_rp_log(n);
-                    report += &("<".to_string() + n + " log> (Length: " +  &roas[ind].len().to_string() + ")\n");
-                    report += &l;
-                    report += "\n\n";
-                    ind += 1;
-                }
-                println!("Finished Folder {}", cu);
-
-                
-            }
-
-            report += "<Missing from RPs>\n";
-            report += &miss_from_rps.iter().map(|x| x.to_string()).collect::<Vec<String>>().join("\n");
-            println!("Report: {}", report);
-            println!("Total subnet: {}, prefix: {}", total_subnet, total_prefix);
-
-        }
-    
-    }   
-    else if mode == OpMode::Runner{
+        vrps_analysis::start_analysis(&uri, &typ.to_string(), &ty);
+    } else if mode == OpMode::Runner {
         println!("\n--- RPKI Relying Party Standalone Fuzzer ---\n");
 
         let re = test_run();
@@ -688,134 +313,114 @@ fn main() {
         }
 
         let mut no_ee = false;
-        if additional_info.len() > 0 && additional_info[0] == "no_ee"{
+        if additional_info.len() > 0 && additional_info[0] == "no_ee" {
             no_ee = true;
         }
 
         let mut conf = repository::create_default_config(consts::domain.to_string());
-        let ad = Ipv4Addr::new(219, 235, 128, 0);
-        let pre = resources::Prefix::new(ad, 21);
-        let bl = IpBlock::from(pre);
 
         let cont = fs::read(&uri).unwrap();
         let con_ips = vrps_analysis::get_content_ips(Bytes::from(cont));
         conf.IPBlocks.extend(con_ips);
 
         repository::initialize_repo(&mut conf, false, None);
-    
-    
-        if typ == "mft"{
+
+        if typ == OpType::MFT {
             fuzzing::mft::do_both(&uri, no_ee, &conf);
-        }
-        else if typ == "crl"{
+        } else if typ == OpType::CRL {
             fuzzing::crl::do_both(&uri, &mut conf);
-        }
-        else if typ == "roa" {
-            fuzzing::roa::do_both(&uri, no_ee, "roa", &conf);
-        }
-        else if typ == "gbr"{
-            fuzzing::roa::do_both(&uri, no_ee, "gbr", &conf);
-        }
-        else if typ == "aspa"{
-            fuzzing::roa::do_both(&uri, no_ee, "aspa", &conf);
-        }
-        else if typ == "cert"{
+        } else if typ == OpType::ROA || typ == OpType::GBR || typ == OpType::ASPA {
+            fuzzing::roa::do_both(&uri, no_ee, &typ.to_string(), &conf);
+        } else if typ == OpType::CERT {
             fuzzing::cert::do_both(&uri, &conf);
-        }
-        else{
+        } else {
             panic!("Unknown object type!");
-            }
-    
+        }
+
         println!("Info: Finished creating all objects in data/repo/ folder");
         println!("Info: Running RPs");
         let re = util::run_rp_processes("info");
-        for r in re{
-            if r.1{
+
+        for r in re {
+            if r.1 {
                 println!("\n\n   ---> RP {} crashed!!\n\n", r.0);
             }
         }
+
         let rp_names = vec!["Routinator", "OctoRPKI", "Fort", "RPKI-Client"];
         let (vrps, _, _, roas) = util::get_rp_vrps();
         let mut fault_occured = false;
-        for i in 0..roas.len(){
+        for i in 0..roas.len() {
             let r = &roas[i];
             let mut two_in = false;
-    
-            for v in r{
-                if v.as_id.into_u32() == 22222{
+
+            for v in r {
+                if v.as_id.into_u32() == 22222 {
                     two_in = true;
                 }
             }
-            if !(two_in){
+            if !(two_in) {
                 println!("Warning: {} did not accept test ROA ASN22222", rp_names[i]);
                 fault_occured = true;
             }
         }
         println!("");
-        if !fault_occured{
-            println!("Info: All RPs accepted both test ROAs");
+        if !fault_occured {
+            println!("Info: All RPs accepted test ROA 22222");
         }
         println!("Info: RPs finished, Logs written to output/\n");
         println!("<VRPS>\n{}", vrps);
         return;
-    }
-
-    else if mode == OpMode::Generation{
+    } else if mode == OpMode::Generation {
         let amount;
-        if additional_info.len() > 0{
+        if additional_info.len() > 0 {
             amount = additional_info[0].parse::<u16>().unwrap();
-        }
-        else{
+        } else {
             amount = 20;
         }
         let dont_move;
-        if additional_info.len() > 1{
+        if additional_info.len() > 1 {
             dont_move = additional_info[1].parse::<bool>().unwrap();
-        }
-        else{
+        } else {
             dont_move = true;
         }
 
-        if dont_move{
+        if dont_move {
             println!("Warning: Don't move is set to TRUE. The same files will be used continuously.")
         }
 
         let conf = repository::create_default_config(consts::domain.to_string());
-        if typ == "mft" {
+        if typ == OpType::MFT {
             fuzzing::mft::create_objects(uri, amount, dont_move, false, 4000, false);
-        } else if typ == "crl"{
+        } else if typ == OpType::CRL {
             fuzzing::crl::create_objects(uri, amount, dont_move, false, 4000);
-        }else if typ == "roa" || typ == "aspa" || typ == "gbr"{
+        } else if typ == OpType::ROA || typ == OpType::ASPA || typ == OpType::GBR {
             // TODO change this back
-            fuzzing::roa::create_objects(uri, amount, dont_move, false, 10000, false, &typ, &conf);
-        }
-        else if typ == "cert"{
+            fuzzing::roa::create_objects(uri, amount, dont_move, false, 10000, false, &typ.to_string(), &conf);
+        } else if typ == OpType::CERT {
             fuzzing::cert::create_objects(uri, amount, dont_move, false, 10000);
-        }
-        else{
+        } else {
             panic!("Unknown object type generator!");
         }
         std::process::exit(0);
-    }
-
-    else if mode == OpMode::Fuzzer{
+    } else if mode == OpMode::Fuzzer {
         println!("\n--- RPKI Relying Party Fuzzer ---\n");
-        println!("Info: Object Type: {}", typ_to_name(&typ));
+        println!("Info: Object Type: {}", typ_to_name(&typ.to_string()));
 
         let re = test_run();
         if re {
             return;
         }
 
-        let folders = match additional_info.len() > 0{
+        let folders = match additional_info.len() > 0 {
             true => {
                 let mut ret = vec![];
-                for i in additional_info{
+                for i in additional_info {
                     ret.push(i);
                 }
                 Some(ret)
-            },
-            false => None
+            }
+            false => None,
         };
 
         println!("Info: Creating Folders");
@@ -825,72 +430,63 @@ fn main() {
         let cws = get_cwd() + "/";
         let rrdp_types = vec!["notification", "snapshot"];
 
-        if !rrdp_types.contains(&typ.as_str()){
-            let (mut children, folders) = util::start_processes("./bin/object_generator", &typ, folders);
+        if !rrdp_types.contains(&typ.to_string().as_str()) {
+            let (mut children, folders) = util::start_processes("./bin/object_generator", &typ.to_string(), folders);
             let obj_cache = cws + "obj_cache/";
-            
+
             let obj_per_iteration;
             let repo_fn: &dyn Fn(&RepoConfig, u32);
             let serialized_obj_fn: &dyn Fn(&str, &RepoConfig, u32, Option<Vec<(Bytes, String)>>, &str);
 
-            if typ == "mft"{
+            if typ == OpType::MFT {
                 obj_per_iteration = 5000;
 
                 repo_fn = &fuzzing::mft::clear_repo;
-                serialized_obj_fn = &fuzzing::mft::handle_serialized_object;    
-            }
-            else if typ == "cert"{
+                serialized_obj_fn = &fuzzing::mft::handle_serialized_object;
+            } else if typ == OpType::CERT {
                 obj_per_iteration = 10000;
 
                 repo_fn = &util::clear_repo;
-                serialized_obj_fn = &fuzzing::cert::handle_serialized_object;    
-            }
-            else if typ == "roa" || typ == "gbr" || typ == "aspa"{
+                serialized_obj_fn = &fuzzing::cert::handle_serialized_object;
+            } else if typ == OpType::ROA || typ == OpType::GBR || typ == OpType::ASPA {
                 obj_per_iteration = 10000;
 
                 repo_fn = &util::clear_repo;
-                serialized_obj_fn = &fuzzing::roa::handle_serialized_object;    
-            }
-            else{
+                serialized_obj_fn = &fuzzing::roa::handle_serialized_object;
+            } else {
                 panic!("Unknown object type!");
             }
 
             util::start_fuzzing(
                 &obj_cache,
-                &typ,
+                &typ.to_string(),
                 folders,
                 obj_per_iteration,
                 repo_fn,
                 serialized_obj_fn,
-                &mut children
+                &mut children,
             );
-        }
-        else{
-            if typ == "notification"{
+        } else {
+            if typ == OpType::NOTI {
                 let dont_move = false;
-                if dont_move{
+                if dont_move {
                     println!("Warning: Don't move is set to TRUE. The same files will be used continuously.")
                 }
-                let folders = vec!["/home/mirdita/data/xmls/notification/".to_string()];
 
                 let create_fun = fuzzing::notification::create_notifications;
                 let repo_fn = &util::clear_repo;
-                util::start_fuzzing_xml(&typ, folders.clone(), 4000, repo_fn, &create_fun, dont_move);
+                util::start_fuzzing_xml(&typ.to_string(), vec![uri.clone()], 4000, repo_fn, &create_fun, dont_move);
                 return;
-            }
-            else if typ == "snapshot"{
+            } else if typ == OpType::SNAP {
                 let dont_move = false;
-                if dont_move{
+                if dont_move {
                     println!("Warning: Don't move is set to TRUE. The same files will be used continuously.")
                 }
-                let folders = vec!["/home/mirdita/data/xmls/snapshot/".to_string()];
-
                 let create_fun = fuzzing::snapshot::create_snapshots;
                 let repo_fn = &util::clear_repo;
-                util::start_fuzzing_xml(&typ, folders.clone(), 4000, repo_fn, &create_fun, dont_move);
+                util::start_fuzzing_xml(&typ.to_string(), vec![uri.clone()], 4000, repo_fn, &create_fun, dont_move);
                 return;
             }
-    
         }
     }
 }
