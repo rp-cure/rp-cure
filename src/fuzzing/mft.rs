@@ -7,6 +7,14 @@ use std::time::Instant;
 
 use crate::asn1p;
 use crate::consts;
+use crate::publication_point::fuzzing_interface;
+use crate::publication_point::repository;
+use crate::publication_point::repository::create_current_snapshot;
+use crate::publication_point::repository::create_notification;
+use crate::publication_point::repository::get_current_session_notification;
+use crate::publication_point::repository::write_notification_file;
+use crate::publication_point::repository::KeyAndSigner;
+use crate::publication_point::repository::RepoConfig;
 use crate::util;
 use crate::util::read_files_from_folder;
 use bytes::Bytes;
@@ -17,15 +25,6 @@ use rand::Rng;
 use rpki::repository::crypto::PublicKey;
 use rpki::repository::resources::Asn;
 use rpki::repository::resources::Prefix;
-use crate::publication_point::fuzzing_interface;
-use crate::publication_point::adapted_functions::sigobj_a::a;
-use crate::publication_point::repository;
-use crate::publication_point::repository::create_current_snapshot;
-use crate::publication_point::repository::create_notification;
-use crate::publication_point::repository::get_current_session_notification;
-use crate::publication_point::repository::write_notification_file;
-use crate::publication_point::repository::KeyAndSigner;
-use crate::publication_point::repository::RepoConfig;
 use std::fs::read_dir;
 use std::time::Duration;
 use uuid::Uuid;
@@ -34,20 +33,18 @@ use std::mem::ManuallyDrop;
 pub fn do_both(obj_folder: &str, no_ee: bool, conf: &RepoConfig) {
     let cws = util::get_cwd() + "/";
     let folder;
-    if obj_folder.starts_with("/"){
+    if obj_folder.starts_with("/") {
         folder = obj_folder.to_string();
-    }
-    else{
+    } else {
         folder = cws.clone() + obj_folder;
-    }    
+    }
     let obj_folder = cws + "obj_cache/";
     fs::remove_dir_all(obj_folder.clone());
     fs::create_dir_all(obj_folder.clone());
     let amount;
-    if fs::metadata(folder.clone()).is_ok() && fs::metadata(folder.clone()).unwrap().is_file(){
+    if fs::metadata(folder.clone()).is_ok() && fs::metadata(folder.clone()).unwrap().is_file() {
         amount = 1;
-    }
-    else{
+    } else {
         amount = read_dir(folder.clone()).unwrap().count();
     }
 
@@ -63,18 +60,16 @@ pub fn do_both(obj_folder: &str, no_ee: bool, conf: &RepoConfig) {
     }
 }
 
-pub fn create_crls(amount: u32, conf: &mut RepoConfig) -> Vec<Bytes>{
+pub fn create_crls(amount: u32, conf: &mut RepoConfig) -> Vec<Bytes> {
     let mut contents = vec![];
-    for i in 0..amount{
+    for i in 0..amount {
         let ca_name = "ca".to_string() + &i.to_string();
         let rsa_key_uri_l = conf.BASE_KEY_DIR_l.clone() + &ca_name + ".der";
         let crl_content = repository::create_default_crl(0, vec![], &rsa_key_uri_l, &ca_name, conf);
         contents.push(crl_content);
-    }  
+    }
     contents
-
 }
-
 
 pub fn create_objects(folder: String, max_file_amount: u16, dont_move: bool, oneshot: bool, amount: u32, no_ee: bool) {
     let mut conf = repository::create_default_config(consts::domain.to_string());
@@ -106,9 +101,9 @@ pub fn create_objects(folder: String, max_file_amount: u16, dont_move: bool, one
         }
         util::serialize_data(&data);
 
-        util::move_files_data(folder.clone().to_string(), &data, dont_move);       
+        util::move_files_data(folder.clone().to_string(), &data, dont_move);
 
-        if oneshot{
+        if oneshot {
             break;
         }
         // TODO REMOVE
@@ -120,11 +115,7 @@ pub fn create_objects(folder: String, max_file_amount: u16, dont_move: bool, one
     }
 }
 
-pub fn create_mft_roa(){
-    
-}
-
-
+pub fn create_mft_roa() {}
 
 pub fn generate_from_files_plain(
     folder: &str,
@@ -139,21 +130,18 @@ pub fn generate_from_files_plain(
     // TODO REMOVE, THIS IS FOR DEBUGGING ONLY
     let duplicate_amount = 1;
 
-
     let md = metadata(folder).unwrap();
     let obj;
-    if md.is_file(){
+    if md.is_file() {
         let con = util::decb64(folder);
-        if con.is_some(){
+        if con.is_some() {
             obj = vec![(folder.to_string(), con.unwrap())];
-        }
-        else{
+        } else {
             obj = vec![(folder.to_string(), Bytes::from(fs::read(folder).unwrap()))];
         }
 
         // obj = vec![(folder.to_string(), Bytes::from(fs::read(folder).unwrap()))];
-    }
-    else{
+    } else {
         obj = read_files_from_folder(folder, amount);
     }
     //let obj = read_files_from_folder(folder, amount);
@@ -172,10 +160,9 @@ pub fn generate_from_files_plain(
         let a = &obj.clone()[i];
         let e_content;
 
-        if no_ee{
+        if no_ee {
             e_content = Bytes::from(asn1p::extract_e_content(Bytes::from(a.1.clone()), Some("mft")).unwrap());
-        }
-        else{
+        } else {
             e_content = a.1.clone();
         }
 
@@ -190,7 +177,7 @@ pub fn generate_from_files_plain(
             priv_keys[i].clone(),
             pub_keys[i].clone(),
             &ca_name,
-            None
+            None,
         );
 
         objects.push((a.0.clone(), re.to_vec()));
@@ -199,8 +186,7 @@ pub fn generate_from_files_plain(
     objects
 }
 
-
-pub fn handle_serialized_object_inner(data: Vec<(String, Vec<u8>)>, path: &str, start_index: u32, conf: &RepoConfig){
+pub fn handle_serialized_object_inner(data: Vec<(String, Vec<u8>)>, path: &str, start_index: u32, conf: &RepoConfig) {
     let mut filenames = vec![];
     let mut objects = vec![];
     let mut index = 0;
@@ -222,8 +208,11 @@ pub fn handle_serialized_object_inner(data: Vec<(String, Vec<u8>)>, path: &str, 
     alt_con.CA_NAME = "ca0".to_string();
     alt_con.CA_TREE.insert("ca0".to_string(), "ta".to_string());
     // repository::add_roa_str("10.0.0.0/24 => 11111", true, &alt_con);
-    repository::add_roa_str(&(conf.DEFAULT_IPSPACE_FIRST_OCTET.to_string() + "." +  &conf.DEFAULT_IPSPACE_SEC_OCTET.to_string() + ".0.0/24 => 22222"), true, conf);
-
+    repository::add_roa_str(
+        &(conf.DEFAULT_IPSPACE_FIRST_OCTET.to_string() + "." + &conf.DEFAULT_IPSPACE_SEC_OCTET.to_string() + ".0.0/24 => 22222"),
+        true,
+        conf,
+    );
 
     fs::remove_dir_all(&conf.BASE_RRDP_DIR_l);
     let (session_id, serial_number) = get_current_session_notification(conf);
@@ -239,7 +228,7 @@ pub fn handle_serialized_object_inner(data: Vec<(String, Vec<u8>)>, path: &str, 
 
 pub fn handle_serialized_object(path: &str, conf: &RepoConfig, index: u32, additional_data: Option<Vec<(Bytes, String)>>, _: &str) {
     let data = util::read_serialized_data(path);
-    handle_serialized_object_inner(data, path, 0, conf);   
+    handle_serialized_object_inner(data, path, 0, conf);
 }
 
 pub fn clear_repo(conf: &RepoConfig, ca_amount: u32) {
