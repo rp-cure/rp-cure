@@ -1,4 +1,4 @@
-use std::{fs, clone};
+use std::{clone, fs};
 
 use asn1;
 use bytes::Bytes;
@@ -34,19 +34,16 @@ pub struct TbsCertificateFull<'a> {
 }
 
 #[derive(asn1::Asn1Read, asn1::Asn1Write)]
-pub struct Validity{
+pub struct Validity {
     pub notBefore: asn1::UtcTime,
     pub notAfter: asn1::UtcTime,
 }
 
-
-
 #[derive(asn1::Asn1Read, asn1::Asn1Write)]
-pub struct AlgorithmIdentifier<'a>{
+pub struct AlgorithmIdentifier<'a> {
     pub algorithm: asn1::Tlv<'a>,
     pub parameters: Option<asn1::Tlv<'a>>,
 }
-
 
 #[derive(asn1::Asn1Read, asn1::Asn1Write)]
 pub struct CertificateRevocationList<'a> {
@@ -55,10 +52,10 @@ pub struct CertificateRevocationList<'a> {
     pub signatureValue: asn1::BitString<'a>,
 }
 
-
 #[derive(asn1::Asn1Read, asn1::Asn1Write)]
 pub struct tbsCertificate<'a> {
     // Potentially need to remove
+    #[explicit[0]]
     pub version: Option<asn1::Tlv<'a>>,
     pub serialNumber: Option<asn1::Tlv<'a>>,
     pub signature: Option<asn1::Tlv<'a>>,
@@ -83,8 +80,6 @@ pub struct CertificateFull<'a> {
     pub signatureAlgorithm: AlgorithmIdentifier<'a>,
     pub signatureValue: asn1::BitString<'a>,
 }
-
-
 
 #[derive(asn1::Asn1Read, asn1::Asn1Write)]
 pub struct CertificateT<'a> {
@@ -114,13 +109,12 @@ pub struct Certificate2<'a> {
     pub signatureValue: asn1::BitString<'a>,
 }
 
-
 #[derive(asn1::Asn1Read, asn1::Asn1Write)]
-pub struct certificatePolicies<'a>{
+pub struct certificatePolicies<'a> {
     pub policies: asn1::SequenceOf<'a, PolicyInformation<'a>>,
 }
 #[derive(asn1::Asn1Read, asn1::Asn1Write)]
-pub struct PolicyInformation<'a>{
+pub struct PolicyInformation<'a> {
     pub policyIdentifier: asn1::ObjectIdentifier,
     pub policy: Option<asn1::IA5String<'a>>,
 }
@@ -142,11 +136,9 @@ pub struct TypeAndValueSpec<'a> {
     pub attrValue: asn1::Tlv<'a>,
 }
 
-
-
 #[derive(asn1::Asn1Read, asn1::Asn1Write, Debug)]
 
-pub struct ExtensionValue<'a>{
+pub struct ExtensionValue<'a> {
     pub identifier: asn1::ObjectIdentifier,
     #[default(false)]
     pub critical: bool,
@@ -154,7 +146,7 @@ pub struct ExtensionValue<'a>{
 }
 #[derive(asn1::Asn1Read, asn1::Asn1Write)]
 
-pub struct AKIContent<'a>{
+pub struct AKIContent<'a> {
     #[implicit(0)]
     pub keyIdentifier: Option<&'a [u8]>,
     #[implicit(1)]
@@ -165,30 +157,29 @@ pub struct AKIContent<'a>{
 
 #[derive(asn1::Asn1Read, asn1::Asn1Write)]
 
-pub struct SubPubKeyInfo<'a>{
+pub struct SubPubKeyInfo<'a> {
     #[explicit(0)]
     pub keyIdentifier: Option<&'a [u8]>,
 }
 #[derive(asn1::Asn1Read, asn1::Asn1Write)]
 
-pub struct SubjectInfoAccess<'a>{
+pub struct SubjectInfoAccess<'a> {
     pub identifier: asn1::ObjectIdentifier,
     pub fields: asn1::OctetStringEncoded<asn1::SequenceOf<'a, InfoAccessField<'a>>>,
 }
 
 #[derive(asn1::Asn1Read, asn1::Asn1Write)]
 
-pub struct AuthorityInfoAccess<'a>{
+pub struct AuthorityInfoAccess<'a> {
     pub identifier: asn1::ObjectIdentifier,
     pub fields: asn1::OctetStringEncoded<asn1::SequenceOf<'a, InfoAccessField<'a>>>,
 }
 
-
 #[derive(asn1::Asn1Read, asn1::Asn1Write, Debug)]
 
-pub struct InfoAccessField<'a>{
+pub struct InfoAccessField<'a> {
     pub identifier: asn1::ObjectIdentifier,
-    #[implicit(6)]        
+    #[implicit(6)]
     pub val: Option<asn1::IA5String<'a>>,
 }
 #[derive(asn1::Asn1Read, asn1::Asn1Write)]
@@ -198,115 +189,107 @@ pub struct SubjectPublicKeyInfo<'a> {
     pub subjectPublicKey: asn1::Tlv<'a>,
 }
 
-
 #[derive(asn1::Asn1Read, asn1::Asn1Write)]
-pub struct AuthorityKeyIdentifier<'a>{
+pub struct AuthorityKeyIdentifier<'a> {
     #[implicit(0)]
     pub keyIdentifier: Option<&'a [u8]>,
 }
 
 #[derive(asn1::Asn1Read, asn1::Asn1Write)]
-pub struct CrlDistributionPoints<'a>{
+pub struct CrlDistributionPoints<'a> {
     pub identifier: asn1::ObjectIdentifier,
     pub crlDistributionPoints: asn1::OctetStringEncoded<asn1::SequenceOf<'a, DistributionPoint<'a>>>,
 }
 
 #[derive(asn1::Asn1Read, asn1::Asn1Write)]
-pub struct DistributionPoint<'a>{
+pub struct DistributionPoint<'a> {
     #[implicit(0)]
     pub distributionPoint: Option<DistributionPointName<'a>>,
 }
 
 #[derive(asn1::Asn1Read, asn1::Asn1Write)]
-pub struct DistributionPointName<'a>{
+pub struct DistributionPointName<'a> {
     #[implicit(0)]
     pub fullname: Option<GeneralName<'a>>,
-}   
+}
 
 #[derive(asn1::Asn1Read, asn1::Asn1Write)]
-pub struct GeneralName<'a>{
+pub struct GeneralName<'a> {
     #[implicit(6)]
     pub UniformResourceIdentifier: Option<asn1::IA5String<'a>>,
 }
 
 #[derive(asn1::Asn1Read, asn1::Asn1Write)]
-pub struct BasicConstraints{
+pub struct BasicConstraints {
     pub ca: bool,
 }
 
-
 #[derive(asn1::Asn1Read, asn1::Asn1Write)]
-pub struct EncapsulatedContentInfo<'a>{
+pub struct EncapsulatedContentInfo<'a> {
     pub eContentType: asn1::ObjectIdentifier,
     #[explicit(0)]
     pub eContent: Option<asn1::Tlv<'a>>,
 }
 
-
 #[derive(asn1::Asn1Read, asn1::Asn1Write)]
-pub struct ROAInfo<'a>{
+pub struct ROAInfo<'a> {
     pub eContentType: asn1::ObjectIdentifier,
     #[explicit(0)]
     pub eContent: Option<asn1::OctetStringEncoded<ROA<'a>>>,
 }
 
-
 #[derive(asn1::Asn1Read, asn1::Asn1Write)]
-pub struct MftInfo<'a>{
+pub struct MftInfo<'a> {
     pub eContentType: asn1::ObjectIdentifier,
     #[explicit(0)]
     pub eContent: Option<asn1::OctetStringEncoded<Manifest<'a>>>,
 }
 
 #[derive(asn1::Asn1Read, asn1::Asn1Write)]
-pub struct ROAInfo2<'a>{
+pub struct ROAInfo2<'a> {
     pub eContentType: asn1::ObjectIdentifier,
     #[explicit(0)]
     pub eContent: Option<asn1::Tlv<'a>>,
 }
 
-
 #[derive(asn1::Asn1Read, asn1::Asn1Write)]
-pub struct constructedROA<'a>{
+pub struct constructedROA<'a> {
     pub roa: asn1::OctetStringEncoded<ROA<'a>>,
 }
 
-
 #[derive(asn1::Asn1Read, asn1::Asn1Write, Clone)]
-pub struct ROA<'a>{
+pub struct ROA<'a> {
     pub asID: u32,
     pub ipAddrBlocks: asn1::SequenceOf<'a, ROAIpAddrFamily<'a>>,
 }
 
-
 #[derive(asn1::Asn1Read, asn1::Asn1Write)]
-pub struct SignedData<'a>{
+pub struct SignedData<'a> {
     pub version: u8,
-    pub digestAlgorithms:  asn1::Tlv<'a>,
-    pub encapContentInfo:  EncapsulatedContentInfo<'a>,
-    pub certificates:  asn1::Tlv<'a>,
+    pub digestAlgorithms: asn1::Tlv<'a>,
+    pub encapContentInfo: EncapsulatedContentInfo<'a>,
+    pub certificates: asn1::Tlv<'a>,
     pub signerInfos: asn1::Tlv<'a>,
 }
 
 #[derive(asn1::Asn1Read, asn1::Asn1Write)]
-pub struct SignedDataSpec<'a>{
+pub struct SignedDataSpec<'a> {
     pub version: u8,
-    pub digestAlgorithms:  asn1::Tlv<'a>,
-    pub encapContentInfo:  EncapsulatedContentInfo<'a>,
+    pub digestAlgorithms: asn1::Tlv<'a>,
+    pub encapContentInfo: EncapsulatedContentInfo<'a>,
     #[implicit(0)]
-    pub certificates:  Option<asn1::SetOf<'a, Certificate<'a>>>,
+    pub certificates: Option<asn1::SetOf<'a, Certificate<'a>>>,
     pub signerInfos: asn1::Tlv<'a>,
 }
 
-
 #[derive(asn1::Asn1Read, asn1::Asn1Write)]
-pub struct SignedAttribute<'a>{
+pub struct SignedAttribute<'a> {
     pub contentType: asn1::ObjectIdentifier,
     pub value: asn1::Tlv<'a>,
 }
 
 #[derive(asn1::Asn1Read, asn1::Asn1Write, Clone)]
-pub struct SignerInfos<'a>{
+pub struct SignerInfos<'a> {
     pub version: u8,
     #[implicit(0)]
     pub sid: Option<&'a [u8]>,
@@ -317,153 +300,142 @@ pub struct SignerInfos<'a>{
     pub signature: asn1::Tlv<'a>,
 }
 
-
 #[derive(asn1::Asn1Read, asn1::Asn1Write)]
-pub struct ContentInfoSpec<'a>{
+pub struct ContentInfoSpec<'a> {
     pub contentType: asn1::ObjectIdentifier,
     #[explicit(0)]
     pub content: Option<SignedDataSpec<'a>>,
 }
 
-
 #[derive(asn1::Asn1Read, asn1::Asn1Write)]
-pub struct ContentInfo<'a>{
+pub struct ContentInfo<'a> {
     pub contentType: asn1::ObjectIdentifier,
     #[explicit(0)]
     pub content: Option<SignedDataRoa<'a>>,
 }
 
 #[derive(asn1::Asn1Read, asn1::Asn1Write)]
-pub struct ContentInfoMft<'a>{
+pub struct ContentInfoMft<'a> {
     pub contentType: asn1::ObjectIdentifier,
     #[explicit(0)]
     pub content: Option<SignedDataMft<'a>>,
 }
 
 #[derive(asn1::Asn1Read, asn1::Asn1Write)]
-pub struct ContentInfoMftFull<'a>{
+pub struct ContentInfoMftFull<'a> {
     pub contentType: asn1::ObjectIdentifier,
     #[explicit(0)]
     pub content: Option<SignedDataMftFull<'a>>,
 }
 
 #[derive(asn1::Asn1Read, asn1::Asn1Write)]
-pub struct ContentInfoRoaFull<'a>{
+pub struct ContentInfoRoaFull<'a> {
     pub contentType: asn1::ObjectIdentifier,
     #[explicit(0)]
     pub content: Option<SignedDataRoaFull<'a>>,
 }
 
-
 #[derive(asn1::Asn1Read, asn1::Asn1Write)]
-pub struct ContentInfo2<'a>{
+pub struct ContentInfo2<'a> {
     pub contentType: asn1::Tlv<'a>,
     #[explicit(0)]
     pub content: Option<asn1::Tlv<'a>>,
 }
 
-
 #[derive(asn1::Asn1Read, asn1::Asn1Write)]
-pub struct SignedDataRoa<'a>{
+pub struct SignedDataRoa<'a> {
     pub version: asn1::Tlv<'a>,
-    pub digestAlgorithms:  asn1::Tlv<'a>,
-    pub encapContentInfo:  ROAInfo<'a>,
+    pub digestAlgorithms: asn1::Tlv<'a>,
+    pub encapContentInfo: ROAInfo<'a>,
     #[implicit(0)]
-    pub certificates:  Option<asn1::SetOf<'a, Certificate<'a>>>,
+    pub certificates: Option<asn1::SetOf<'a, Certificate<'a>>>,
     pub signerInfos: asn1::Tlv<'a>,
 }
 
 #[derive(asn1::Asn1Read, asn1::Asn1Write)]
-pub struct SignedDataMft<'a>{
+pub struct SignedDataMft<'a> {
     pub version: asn1::Tlv<'a>,
-    pub digestAlgorithms:  asn1::Tlv<'a>,
-    pub encapContentInfo:  MftInfo<'a>,
+    pub digestAlgorithms: asn1::Tlv<'a>,
+    pub encapContentInfo: MftInfo<'a>,
     #[implicit(0)]
-    pub certificates:  Option<asn1::SetOf<'a, Certificate<'a>>>,
-    pub signerInfos: asn1::Tlv<'a>,
-}
-
-
-#[derive(asn1::Asn1Read, asn1::Asn1Write)]
-pub struct SignedDataRoaFull<'a>{
-    pub version: asn1::Tlv<'a>,
-    pub digestAlgorithms:  asn1::Tlv<'a>,
-    pub encapContentInfo:  ROAInfo<'a>,
-    #[implicit(0)]
-    pub certificates:  Option<asn1::SetOf<'a, CertificateFull<'a>>>,
-    pub signerInfos: asn1::Tlv<'a>,
-}
-
-
-
-#[derive(asn1::Asn1Read, asn1::Asn1Write)]
-pub struct SignedDataMftFull<'a>{
-    pub version: asn1::Tlv<'a>,
-    pub digestAlgorithms:  asn1::Tlv<'a>,
-    pub encapContentInfo:  MftInfo<'a>,
-    #[implicit(0)]
-    pub certificates:  Option<asn1::SetOf<'a, CertificateFull<'a>>>,
-    pub signerInfos: asn1::Tlv<'a>,
-}
-
-
-#[derive(asn1::Asn1Read, asn1::Asn1Write)]
-pub struct SignedDataRoa2<'a>{
-    pub version: asn1::Tlv<'a>,
-    pub digestAlgorithms:  asn1::Tlv<'a>,
-    pub encapContentInfo:  asn1::Tlv<'a>,
-    #[implicit(0)]
-    pub certificates:  Option<asn1::SetOf<'a, Certificate<'a>>>,
+    pub certificates: Option<asn1::SetOf<'a, Certificate<'a>>>,
     pub signerInfos: asn1::Tlv<'a>,
 }
 
 #[derive(asn1::Asn1Read, asn1::Asn1Write)]
-pub struct CertChoice<'a>{
+pub struct SignedDataRoaFull<'a> {
+    pub version: asn1::Tlv<'a>,
+    pub digestAlgorithms: asn1::Tlv<'a>,
+    pub encapContentInfo: ROAInfo<'a>,
+    #[implicit(0)]
+    pub certificates: Option<asn1::SetOf<'a, CertificateFull<'a>>>,
+    pub signerInfos: asn1::Tlv<'a>,
+}
+
+#[derive(asn1::Asn1Read, asn1::Asn1Write)]
+pub struct SignedDataMftFull<'a> {
+    pub version: asn1::Tlv<'a>,
+    pub digestAlgorithms: asn1::Tlv<'a>,
+    pub encapContentInfo: MftInfo<'a>,
+    #[implicit(0)]
+    pub certificates: Option<asn1::SetOf<'a, CertificateFull<'a>>>,
+    pub signerInfos: asn1::Tlv<'a>,
+}
+
+#[derive(asn1::Asn1Read, asn1::Asn1Write)]
+pub struct SignedDataRoa2<'a> {
+    pub version: asn1::Tlv<'a>,
+    pub digestAlgorithms: asn1::Tlv<'a>,
+    pub encapContentInfo: asn1::Tlv<'a>,
+    #[implicit(0)]
+    pub certificates: Option<asn1::SetOf<'a, Certificate<'a>>>,
+    pub signerInfos: asn1::Tlv<'a>,
+}
+
+#[derive(asn1::Asn1Read, asn1::Asn1Write)]
+pub struct CertChoice<'a> {
     pub cert: asn1::Tlv<'a>,
 }
 
 #[derive(asn1::Asn1Read, asn1::Asn1Write)]
-pub struct CertificateSet<'a>{
+pub struct CertificateSet<'a> {
     pub certificate: asn1::Tlv<'a>,
-
 }
 
 #[derive(asn1::Asn1Read, asn1::Asn1Write)]
-pub struct SignedDataObject<'a>{
+pub struct SignedDataObject<'a> {
     pub typ: asn1::Tlv<'a>,
     #[explicit(0)]
     pub content: Option<SignedData<'a>>,
 }
 
 #[derive(asn1::Asn1Read, asn1::Asn1Write)]
-pub struct SignedDataObjectSpec<'a>{
+pub struct SignedDataObjectSpec<'a> {
     pub typ: asn1::Tlv<'a>,
     #[explicit(0)]
     pub content: Option<SignedDataSpec<'a>>,
 }
 
-
 #[derive(asn1::Asn1Read, asn1::Asn1Write)]
-pub struct ipAddrBlocks<'a>{
+pub struct ipAddrBlocks<'a> {
     pub addressFamily: &'a [u8],
     pub addresses: Option<asn1::SequenceOf<'a, IpAddrBlockChoice<'a>>>,
 }
 
 #[derive(asn1::Asn1Read, asn1::Asn1Write)]
-pub struct ipAddrBlocksNone<'a>{
+pub struct ipAddrBlocksNone<'a> {
     pub addressFamily: &'a [u8],
     pub addresses: asn1::Null,
 }
 
-
 #[derive(asn1::Asn1Read, asn1::Asn1Write)]
-pub enum IpAddrBlockChoice<'a>{
+pub enum IpAddrBlockChoice<'a> {
     addressPrefix(asn1::BitString<'a>),
     addressRange(IpAddrRange<'a>),
 }
 
 #[derive(asn1::Asn1Read, asn1::Asn1Write)]
-pub struct IpAddrBlockChoice2<'a>{
+pub struct IpAddrBlockChoice2<'a> {
     #[implicit(0)]
     pub addressPrefix: Option<asn1::BitString<'a>>,
     #[implicit(1)]
@@ -471,55 +443,50 @@ pub struct IpAddrBlockChoice2<'a>{
 }
 
 #[derive(asn1::Asn1Read, asn1::Asn1Write)]
-pub struct IpAddrRange<'a>{
+pub struct IpAddrRange<'a> {
     pub min: asn1::BitString<'a>,
     pub max: asn1::BitString<'a>,
 }
 
 #[derive(asn1::Asn1Read, asn1::Asn1Write)]
-pub struct ROAIpAddrFamily<'a>{
+pub struct ROAIpAddrFamily<'a> {
     pub addressFamily: &'a [u8],
-    pub addresses: asn1::SequenceOf<'a, ROAIpAddress<'a>>
+    pub addresses: asn1::SequenceOf<'a, ROAIpAddress<'a>>,
 }
 
 #[derive(asn1::Asn1Read, asn1::Asn1Write)]
-pub struct ROAIpAddress<'a>{
+pub struct ROAIpAddress<'a> {
     pub address: asn1::BitString<'a>,
     pub maxLength: Option<u8>,
 }
 
 #[derive(asn1::Asn1Read, asn1::Asn1Write)]
-pub struct autonomousSystemIds<'a>{
+pub struct autonomousSystemIds<'a> {
     pub asIdsOrRanges: asn1::SequenceOf<'a, AsIdOrRange<'a>>,
 }
 
 #[derive(asn1::Asn1Read, asn1::Asn1Write)]
-pub struct ASIdentifierChoice<'a>{
+pub struct ASIdentifierChoice<'a> {
     #[explicit(0)]
     pub inherit: Option<asn1::Null>,
     #[explicit(1)]
     pub asIdsOrRanges: Option<asn1::SequenceOf<'a, AsIdOrRange<'a>>>,
-
 }
 
-
 #[derive(asn1::Asn1Read, asn1::Asn1Write)]
-pub struct AsIdOrRange<'a>{
+pub struct AsIdOrRange<'a> {
     #[explicit(0)]
     pub AsRange: Option<AsRange<'a>>,
 }
 
 #[derive(asn1::Asn1Read, asn1::Asn1Write)]
-pub struct AsRange<'a>{
+pub struct AsRange<'a> {
     pub min: asn1::BigInt<'a>,
-    pub max: asn1::BigInt<'a>
-
+    pub max: asn1::BigInt<'a>,
 }
 
-
-
 #[derive(asn1::Asn1Read, asn1::Asn1Write, Clone)]
-pub struct Manifest<'a>{
+pub struct Manifest<'a> {
     pub manifestNumber: asn1::BigInt<'a>,
     pub thisUpdateTime: asn1::GeneralizedTime,
     pub nextUpdateTime: Option<asn1::GeneralizedTime>,
@@ -528,59 +495,53 @@ pub struct Manifest<'a>{
 }
 
 #[derive(asn1::Asn1Read, asn1::Asn1Write, Clone)]
-pub struct FileAndHash<'a>{
+pub struct FileAndHash<'a> {
     pub file: asn1::IA5String<'a>,
     pub hash: asn1::BitString<'a>,
 }
 
-
-pub fn fix_e_econtent(obj: Bytes) -> Option<Vec<u8>>{
+pub fn fix_e_econtent(obj: Bytes) -> Option<Vec<u8>> {
     let new_obj = asn1::parse_single::<SignedDataObject>(&obj);
-    if new_obj.is_err(){
+    if new_obj.is_err() {
         // println!("Error: Could not parse Object");
         return None;
     }
 
     let con = new_obj.unwrap().content.unwrap();
 
-
     return None;
 }
 
-pub fn extract_e_content_file(file_uri: &str){
+pub fn extract_e_content_file(file_uri: &str) {
     let file_content = fs::read(file_uri).unwrap();
     extract_e_content(Bytes::from(file_content), None);
 }
 
-pub fn extract_e_content(obj: Bytes, obj_type: Option<&str>) -> Option<Vec<u8>>{
+pub fn extract_e_content(obj: Bytes, obj_type: Option<&str>) -> Option<Vec<u8>> {
     let new_obj = asn1::parse_single::<SignedDataObject>(&obj);
-    if new_obj.is_err(){
+    if new_obj.is_err() {
         // println!("Error: Could not parse Object");
         return None;
     }
     let con = new_obj.unwrap().content.unwrap();
     let con_type = con.encapContentInfo.eContentType.to_string().clone();
     let t;
-    if con_type == "1.2.840.113549.1.9.16.1.26"{
+    if con_type == "1.2.840.113549.1.9.16.1.26" {
         t = "mft";
-    }
-    else if con_type == "1.2.840.113549.1.9.16.1.24"{
+    } else if con_type == "1.2.840.113549.1.9.16.1.24" {
         t = "roa";
-    }
-    else if con_type == "1.2.840.113549.1.9.16.1.49"{
+    } else if con_type == "1.2.840.113549.1.9.16.1.49" {
         t = "aspa";
-    }
-    else if con_type == "1.2.840.113549.1.9.16.1.35"{
+    } else if con_type == "1.2.840.113549.1.9.16.1.35" {
         t = "gbr";
-    }
-    else{
+    } else {
         t = "unknown";
     }
     // println!("Info: Decoded Object with Type {} ({})", t, con_type);
-    if obj_type.is_some() && obj_type.unwrap() != t{
+    if obj_type.is_some() && obj_type.unwrap() != t {
         // println!("\n --> Error: Object Type does not match the given Type! ({} != {})\n", t, obj_type.unwrap_or("unknown"));
     }
-    if con.encapContentInfo.eContent.is_none(){
+    if con.encapContentInfo.eContent.is_none() {
         // println!("Error: Could not extract eContent");
         return None;
     }

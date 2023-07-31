@@ -1,3 +1,6 @@
+use crate::generation_interface::OpType;
+use crate::process_util::ObjectFactory;
+use crate::process_util::SerializableObject;
 use crate::publication_point::fuzzing_interface::generate_for_roas;
 use crate::publication_point::fuzzing_interface::load_ee_ks;
 use crate::publication_point::repository::after_roas_creation;
@@ -54,13 +57,7 @@ use crate::publication_point::rp_interaction;
 
 pub fn read_rp_log(rp_name: &str) -> String {
     let cws = get_cwd() + "/";
-    // let rp;
-    // if rp_name == "octo"{
-    //     rp = "octorpki";
-    // }
-    // else{
-    //     rp = rp_name;
-    // }
+
     let rp_output_raw = fs::read_to_string(cws.clone() + "output/" + rp_name + ".error");
     if rp_output_raw.is_err() {
         println!(
@@ -182,6 +179,27 @@ pub fn serialize_data(val: &Vec<(String, Vec<u8>)>) -> String {
     filename
 }
 
+pub fn serialize_data_new(val: &Vec<(String, Vec<u8>)>) -> String {
+    let mut filenames = vec![];
+    let mut contents = vec![];
+
+    for (a, b) in val {
+        filenames.push(a.to_owned());
+        contents.push(b.to_owned());
+    }
+
+    let ob = SerializableObject {
+        filenames,
+        contents,
+        mfts: None,
+        crls: None,
+        roas: None,
+        roa_names: None,
+    };
+
+    serde_json::to_string(&ob).unwrap()
+}
+
 pub fn test_for_crash(folder: &str) {
     for p in fs::read_dir(folder).unwrap() {
         let bind = p.unwrap().path();
@@ -189,6 +207,25 @@ pub fn test_for_crash(folder: &str) {
         println!("Testing crash {}", path);
         read_serialized_data(path);
     }
+}
+
+pub fn read_serialized_data_new(factory: ObjectFactory) -> Vec<(String, Vec<u8>)> {
+    let sobj = factory.get_object();
+
+    if sobj.is_none() {
+        return vec![];
+    }
+
+    let sobj = sobj.unwrap();
+    let filenames = sobj.filenames;
+    let data = sobj.contents;
+
+    let mut ret = vec![];
+
+    for i in 0..filenames.len() {
+        ret.push((filenames[i].clone(), data[i].clone()));
+    }
+    ret
 }
 
 pub fn read_serialized_data(filename: &str) -> Vec<(String, Vec<u8>)> {
@@ -654,14 +691,13 @@ pub fn create_manifest(
     crl_uri.push_str(&filename);
     crl_uri.push_str(".crl");
 
-    let roa_uri = storage_base_uri.clone() + "123.roa";
-
     let mft_content = custom_manifest(
         ca_name,
         vec![&(filename + ".crl"), &roa_content.1],
         vec![crl_content, roa_content.0],
         conf,
     );
+
     let re = fuzzing_interface::generate_signed_data_from_bytes(
         mft_content,
         &conf,
@@ -764,14 +800,6 @@ pub fn create_example_roas(cert_keys: &Vec<KeyAndSigner>, amount: u32, conf: &Re
             &ca_name,
             None,
         );
-
-        // let roa_bytes = repository::make_default_roa(&parent_uri,
-        //     &roa_string,
-        //     &(conf.BASE_KEY_DIR_l.clone() + &ca_name + ".der"),
-        //     &ca_name,
-        //     false,
-        //     None,
-        //     &conf);
 
         let roa_name = repository::file_name_for_object(&roa_string, ".roa");
         ret.push((re, roa_name));

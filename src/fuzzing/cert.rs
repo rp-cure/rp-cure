@@ -425,6 +425,7 @@ pub fn parse_and_sign(
     let parent_id = parent.get_pub_key().key_identifier().to_string();
     let child_id = pub_key.key_identifier().to_string();
     let a = asn1::parse_single::<asn1p::Certificate>(&data);
+
     if a.is_err() {
         println!("Couldnt parse {}", a.err().unwrap());
         return (data.to_vec(), 0);
@@ -887,7 +888,7 @@ pub fn handle_serialized_object_inner(
 
         repository::write_object_to_disc(&byte_crl, "crl", &key_uri, &ca_name, conf);
         repository::write_object_to_disc(&byte_mft, "mft", &key_uri, &ca_name, conf);
-        repository::write_object_to_disc(&byte_roa, "", &(uri_roa), &ca_name, conf);
+        // repository::write_object_to_disc(&byte_roa, "", &(uri_roa), &ca_name, conf);
 
         repository::write_object_to_disc(&byte, "cer", &(ca_name + ".cer"), "ta", conf);
     }

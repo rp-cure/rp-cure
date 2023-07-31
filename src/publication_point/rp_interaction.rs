@@ -1,13 +1,13 @@
 use rpki::repository::resources::Asn;
 use std::collections::HashMap;
-use std::net::{Ipv4Addr, IpAddr, Ipv6Addr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::os::unix::process::CommandExt;
 use std::process::{Child, Command};
 use std::{fs, str};
 
 use crate::publication_point::constants;
-use crate::repository;
 use crate::publication_point::manual_tests::test_util;
+use crate::repository;
 
 use crate::repository::RPConfig;
 
@@ -16,9 +16,6 @@ use std::str::FromStr;
 
 use serde_json::Value;
 
-
-
-
 pub fn run_rp_command(
     command_tuples: Vec<(&str, &str)>,
     conf: &RPConfig,
@@ -26,7 +23,8 @@ pub fn run_rp_command(
     server: bool,
     rp_name: &str,
 ) -> (String, String, Option<Child>) {
-    // let rp_log = "./output/rp_".to_string() + rp_name + ".log";
+    let profdata_file = rp_name.to_string() + ".profraw";
+
     let path = std::path::Path::new(&conf.logfile);
     let prefix = path.parent().unwrap();
 
@@ -36,44 +34,41 @@ pub fn run_rp_command(
     fs::remove_file(&conf.outfile);
     fs::write(&(conf.logfile.clone() + ".log"), "").unwrap();
     fs::write(&(conf.logfile.clone() + ".error"), "").unwrap();
-    // fs::write(&rp_log, "");
 
     let mut command = conf.binary_location.clone() + " ";
     command += &command_from_tuples(command_tuples, pre);
     command += " > ";
-    if rp_name == "xyz"{
-        //command += &conf.logfile.clone().split(".").collect::<Vec<&str>>()[0].to_string();
-        command += &conf.outfile;
-        //command += ".log";
-    }
-    else{
-        command += &conf.logfile;
-        command += ".log ";
-    }
-
+    command += &conf.logfile;
+    command += ".log ";
     command += " 2> ";
     command += &conf.logfile;
     command += ".error";
-    //command += ".console ";
 
     if server {
-        let child = Command::new("sh").arg("-c").arg(&command).spawn().expect("Failed to launch child");
-        if rp_name == "rpki-client"{
-            // d = fs::read_to_string(&(conf.outfile.clone() + "csv"));
-        }
+        let child = Command::new("sh")
+            .arg("-c")
+            .arg(&command)
+            .env("GOCOVERDIR", "coverinfo")
+            .env("LLVM_PROFILE_FILE", rp_name.to_string() + ".profraw")
+            .spawn()
+            .expect("Failed to launch child");
 
         return ("".to_string(), "".to_string(), Some(child));
     } else {
-        let o = Command::new("sh").arg("-c").arg(&command).output().unwrap();
+        let o = Command::new("sh")
+            .arg("-c")
+            .arg(&command)
+            .env("GOCOVERDIR", "coverinfo")
+            .output()
+            .unwrap();
         let output = str::from_utf8(&o.stdout).unwrap();
         let d;
-        if rp_name == "rpki-client"{
+        if rp_name == "rpki-client" {
             fs::copy(&(conf.outfile.clone() + "csv"), &(conf.outfile.clone() + "vrps_client.txt"));
-            // d = fs::read_to_string(&(conf.outfile.clone() + "csv"));
         }
-        
+
         d = fs::read_to_string(&conf.outfile);
-        
+
         let roa_data = match d {
             Ok(val) => val,
             Err(e) => e.to_string(),
@@ -81,7 +76,6 @@ pub fn run_rp_command(
         return (roa_data, output.to_string(), None);
     }
 }
-
 
 pub fn run_update_routinator_both() -> (Vec<RoaContents>, String) {
     let cwd = test_util::get_cwd();
@@ -224,7 +218,6 @@ pub fn run_update_routinator_p(conf: &RPConfig) -> (Vec<RoaContents>, String) {
 pub fn run_update_routinator_p_non_blocking(conf: &RPConfig, log_level: &str) -> Child {
     let log_levels: HashMap<&str, &str> = HashMap::from([("none", "quiet"), ("error", "$"), ("info", "$-v"), ("debug", "$-vv")]);
 
-    
     let command_tuples = vec![
         ("no-rir-tals", ""),
         ("allow-dubious-hosts", ""),
@@ -313,7 +306,7 @@ pub fn run_update_fort_p(conf: &RPConfig) -> (Vec<RoaContents>, String) {
 pub fn run_update_fort_p_non_blocking(conf: &RPConfig, log_level: &str) -> Child {
     let log_levels: HashMap<&str, &str> = HashMap::from([("none", "info"), ("error", "error"), ("info", "info"), ("debug", "debug")]);
     let mut log_enabled = "true";
-    if log_level == "none"{
+    if log_level == "none" {
         log_enabled = "false";
     }
 
@@ -410,7 +403,6 @@ pub fn run_update_rpki_client_p_non_blocking(conf: &RPConfig, log_level: &str) -
     let binding2 = "$".to_string() + conf.cache_folder.as_str();
     let binding3 = "$".to_string() + conf.outfile.as_str();
 
-   
     let mut command_tuples = vec![
         ("t ", binding.as_str()),
         ("r", ""),
@@ -419,11 +411,9 @@ pub fn run_update_rpki_client_p_non_blocking(conf: &RPConfig, log_level: &str) -
         ("j", binding3.as_str()),
     ];
 
-    if log_level == "warning" || log_level == "debug"{
+    if log_level == "warning" || log_level == "debug" {
         command_tuples.push(("v", ""));
     }
-
-
 
     let (_, _, child) = run_rp_command(command_tuples, conf, " -", true, "rpki-client");
 
@@ -460,8 +450,6 @@ pub fn run_update_rpki_client() -> (Vec<RoaContents>, String) {
 
     run_update_rpki_client_p(&conf)
 }
-
-
 
 pub fn run_update_octorpki_p_server(conf: &RPConfig) -> Child {
     let command_tuples = vec![
@@ -558,11 +546,9 @@ pub fn parse_output_csv(csv_data: &str) -> Vec<RoaContents> {
         let prefix = p.trim().parse::<u8>().unwrap();
 
         let ip_addr;
-        if i.contains("."){
+        if i.contains(".") {
             ip_addr = IpAddr::from(Ipv4Addr::from_str(&i).unwrap());
-            
-        }
-        else{
+        } else {
             ip_addr = IpAddr::from(Ipv6Addr::from_str(&i).unwrap());
         }
         let aid_tmp = Asn::from_str(&as_id);
@@ -597,11 +583,9 @@ pub fn parse_output_json(json_data: &str) -> Vec<RoaContents> {
 
         // let mut ip_vec = vec![];
         let ip_addr;
-        if i.contains("."){
+        if i.contains(".") {
             ip_addr = IpAddr::from(Ipv4Addr::from_str(&i).unwrap());
-            
-        }
-        else{
+        } else {
             ip_addr = IpAddr::from(Ipv6Addr::from_str(&i).unwrap());
         }
         let aid_tmp = Asn::from_str(&asn);
@@ -611,7 +595,6 @@ pub fn parse_output_json(json_data: &str) -> Vec<RoaContents> {
         let as_id = Asn::from_str(&asn).unwrap();
         let roa_content = RoaContents { ip_addr, prefix, as_id };
         roa_contents.push(roa_content);
-        
     }
     roa_contents
 }

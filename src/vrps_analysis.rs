@@ -8,7 +8,6 @@ use std::{
     vec,
 };
 
-use crate::fuzzing;
 use crate::fuzzing::{cert, crl, roa};
 use crate::publication_point::{
     repository::{self, RepoConfig},
@@ -18,6 +17,7 @@ use crate::{
     asn1p::{self, Certificate},
     util,
 };
+use crate::{fuzzing, FuzzConfig};
 use asn1::oid;
 use bcder::{
     encode::{PrimitiveContent, Values},
@@ -41,7 +41,11 @@ use rpki::{
 use serde_json::Value;
 use sha256;
 
-pub fn start_analysis(uri: &str, typ: &str, ty: &str) {
+pub fn start_analysis(conf: FuzzConfig) {
+    let uri = conf.uri;
+    let typ = conf.typ.to_string();
+    let ty = conf.subtype;
+
     let ss = analyse_vrps(false).0;
 
     let base_routinator = "base_routinator/";
@@ -86,21 +90,22 @@ pub fn start_analysis(uri: &str, typ: &str, ty: &str) {
 
             let path = newpath;
 
-            if typ == "mft" {
-                fuzzing::mft::do_both(&path, true, &conf);
-            } else if typ == "crl" {
-                fuzzing::crl::do_both(&path, &mut conf);
-            } else if typ == "roa" {
-                fuzzing::roa::do_both(&path, true, "roa", &conf);
-            } else if typ == "gbr" {
-                fuzzing::roa::do_both(&path, true, "gbr", &conf);
-            } else if typ == "aspa" {
-                fuzzing::roa::do_both(&path, true, "aspa", &conf);
-            } else if typ == "cert" {
-                fuzzing::cert::do_both(&path, &conf);
-            } else {
-                panic!("Unknown object type!");
-            }
+            // TODO
+            // if typ == "mft" {
+            //     fuzzing::mft::do_both(&path, true, &conf);
+            // } else if typ == "crl" {
+            //     fuzzing::crl::do_both(&path, &mut conf);
+            // } else if typ == "roa" {
+            //     fuzzing::roa::do_both(&path, true, "roa", &conf);
+            // } else if typ == "gbr" {
+            //     fuzzing::roa::do_both(&path, true, "gbr", &conf);
+            // } else if typ == "aspa" {
+            //     fuzzing::roa::do_both(&path, true, "aspa", &conf);
+            // } else if typ == "cert" {
+            //     fuzzing::cert::do_both(&path, &conf);
+            // } else {
+            //     panic!("Unknown object type!");
+            // }
             let re = util::run_rp_processes("error");
             for r in re {
                 if r.1 {

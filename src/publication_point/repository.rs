@@ -1,20 +1,19 @@
 use chrono::Duration;
-use rpki::{uri, repository};
+use rpki::{repository, uri};
 use std::str::FromStr;
 
+use ipnet::{Ipv4Net, Ipv6Net};
 use rpki::repository::cert::{Cert, KeyUsage, Overclaim, TbsCert};
 use rpki::repository::crl::{CrlEntry, TbsCertList};
 use rpki::repository::crypto::softsigner::{KeyId, OpenSslSigner};
 use rpki::repository::crypto::{DigestAlgorithm, KeyIdentifier, PublicKey, SignatureAlgorithm, Signer};
 use rpki::repository::manifest::{FileAndHash, ManifestContent};
-use rpki::repository::resources::{Asn, Prefix, self, IpBlock};
+use rpki::repository::resources::{self, Asn, IpBlock, Prefix};
 use rpki::repository::roa::RoaBuilder;
 use rpki::repository::x509::{Name, Serial, Time, Validity};
 use rpki::rrdp::{Delta, DeltaElement, DeltaInfo, Hash, NotificationFile, PublishElement, Snapshot, UpdateElement, UriAndHash};
 use std::net::{Ipv4Addr, Ipv6Addr};
 use walkdir::WalkDir;
-use ipnet::{Ipv4Net, Ipv6Net};
-
 
 use openssl::dsa::Dsa;
 use openssl::hash::MessageDigest;
@@ -235,7 +234,7 @@ pub fn create_crl_tbs(
     adapted_functions::overwritten_functions::into_crl(crl_cert, ks)
 }
 
-pub fn write_object_to_disc(file_content: &Bytes, object_type: &str, additional_info: &str, ca_name: &str, conf: &RepoConfig) -> String{
+pub fn write_object_to_disc(file_content: &Bytes, object_type: &str, additional_info: &str, ca_name: &str, conf: &RepoConfig) -> String {
     // Additional Info contains the additional information required for different objects
     // E.g. mft and crl require the uri of the cert of the objects, roas require the ip/as string
 
@@ -248,10 +247,9 @@ pub fn write_object_to_disc(file_content: &Bytes, object_type: &str, additional_
     } else if object_type == "roa" || object_type == "aspa" || object_type == "gbr" {
         let ext;
         // Aspa only has .asa as extension
-        if object_type== "aspa"{
+        if object_type == "aspa" {
             ext = "asa";
-        }
-        else{
+        } else {
             ext = object_type;
         }
         // file_uri.push_str(&random_serial().to_string());
@@ -275,7 +273,14 @@ pub fn create_default_crl(serial: u64, crl_entries: Vec<CrlEntry>, cert_key_path
 }
 
 // This creates a default valid crl for the repo of the given CA
-pub fn create_default_crl_i(serial: u64, crl_entries: Vec<CrlEntry>, cert_key_path: &str, ca_name: &str, write_to_disc: bool, conf: &RepoConfig) -> Bytes {
+pub fn create_default_crl_i(
+    serial: u64,
+    crl_entries: Vec<CrlEntry>,
+    cert_key_path: &str,
+    ca_name: &str,
+    write_to_disc: bool,
+    conf: &RepoConfig,
+) -> Bytes {
     let ks = read_cert_key(cert_key_path);
 
     let pubkey = ks.get_pub_key();
@@ -870,7 +875,14 @@ pub fn after_roas_creation(roa_file_names: Vec<String>, roa_contents: Vec<Bytes>
     finalize_snap_notification(session_id, serial_number, new_elements_delta, update_elements_delta, conf);
 }
 
-pub fn after_roa_creation(roa_string: &str, mut roa_base_uri: String, ca_name: &str, roa_content: Bytes, new_session: bool, conf: &RepoConfig) {
+pub fn after_roa_creation(
+    roa_string: &str,
+    mut roa_base_uri: String,
+    ca_name: &str,
+    roa_content: Bytes,
+    new_session: bool,
+    conf: &RepoConfig,
+) {
     // These steps represent a serial iteration of rrdp
     // New roa -> New mft -> New CRL -> New Delta -> New Snapshot -> New Notification
     let roa_filename = file_name_for_object(roa_string, ".roa");
@@ -889,14 +901,8 @@ pub fn after_roa_creation(roa_string: &str, mut roa_base_uri: String, ca_name: &
     roa_base_uri.push_str(roa_filename.as_str());
 
     let manifest_content = make_manifest(ca_name, &conf.CA_TREE.get(ca_name).unwrap(), conf);
-    // if ca_name == &conf.CA_NAME {
-    //     manifest_content = make_manifest(&conf.CA_NAME, "ta", conf);
-    // } else {
-    //     manifest_content = make_manifest(ca_name, &conf.CA_NAME, conf);
-    // }
 
-    if !new_session{
-
+    if !new_session {
         let (manifest_hash, file_name_mft) = get_current_file_hash(".mft", ca_name, conf);
         let (crl_hash, file_name_crl) = get_current_file_hash(".crl", ca_name, conf);
 
@@ -912,14 +918,11 @@ pub fn after_roa_creation(roa_string: &str, mut roa_base_uri: String, ca_name: &
             file_name_crl,
             conf,
         );
-    
-        finalize_snap_notification(session_id, serial_number, new_elements_delta, update_elements_delta, conf);
-    }
-    else{
-        finalize_snap_notification(session_id, serial_number, vec![], vec![], conf);
 
+        finalize_snap_notification(session_id, serial_number, new_elements_delta, update_elements_delta, conf);
+    } else {
+        finalize_snap_notification(session_id, serial_number, vec![], vec![], conf);
     }
-   
 }
 
 pub fn finalize_snap_notification(
@@ -960,7 +963,6 @@ pub fn write_notification_file(notification: NotificationFile, conf: &RepoConfig
     let xml_bytes = xml.as_bytes();
 
     write_notification_file_bytes(&xml_bytes, conf)
-    
 }
 
 pub fn write_notification_file_bytes(notification: &[u8], conf: &RepoConfig) -> io::Result<()> {
@@ -969,7 +971,6 @@ pub fn write_notification_file_bytes(notification: &[u8], conf: &RepoConfig) -> 
 
     fs::write(&file_uri, &notification)
 }
-
 
 // The Rsync URI describes the storage location -> This deductes the storage location from a uri
 pub fn filename_from_uri(uri: &uri::Rsync) -> String {
@@ -980,7 +981,7 @@ pub fn filename_from_uri(uri: &uri::Rsync) -> String {
     file_name.unwrap().to_string()
 }
 
-pub fn make_manifest_i(ca_name: &str, parent_name: &str, conf: &RepoConfig, excluded: Option<Vec<String>>) -> Bytes{
+pub fn make_manifest_i(ca_name: &str, parent_name: &str, conf: &RepoConfig, excluded: Option<Vec<String>>) -> Bytes {
     let serial = random_serial();
 
     // Keys are stored as ca_name.der
@@ -1036,9 +1037,16 @@ pub fn make_manifest_i(ca_name: &str, parent_name: &str, conf: &RepoConfig, excl
 
     vector.reverse();
 
-    let content = ManifestContent::new(serial, Time::now() - Duration::from_std(std::time::Duration::from_secs(7000)).unwrap(), Time::tomorrow() + Duration::from_std(std::time::Duration::from_secs(7000)).unwrap(), DigestAlgorithm::default(), vector.iter());
+    let content = ManifestContent::new(
+        serial,
+        Time::now() - Duration::from_std(std::time::Duration::from_secs(7000)).unwrap(),
+        Time::tomorrow() + Duration::from_std(std::time::Duration::from_secs(7000)).unwrap(),
+        DigestAlgorithm::default(),
+        vector.iter(),
+    );
 
-    let file_content = adapted_functions::overwritten_functions::encode_ref_manifest_content(content, crl_rsync, issuer_rsync, mft_rsync, ks, None);
+    let file_content =
+        adapted_functions::overwritten_functions::encode_ref_manifest_content(content, crl_rsync, issuer_rsync, mft_rsync, ks, None);
 
     write_object_to_disc(&file_content, "mft", &cert_key_uri, ca_name, conf);
 
@@ -1063,7 +1071,15 @@ pub fn base_repo_uri(ca_name: &str, conf: &RepoConfig) -> String {
 }
 
 // Create a new Route Origin Attestation
-pub fn make_default_roa(ca_issuer_uri: &str, roa_string: &str, cert_key_uri_l: &str, ca_name: &str, write_to_disc: bool, roa_name: Option<&str>, conf: &RepoConfig) -> Bytes {
+pub fn make_default_roa(
+    ca_issuer_uri: &str,
+    roa_string: &str,
+    cert_key_uri_l: &str,
+    ca_name: &str,
+    write_to_disc: bool,
+    roa_name: Option<&str>,
+    conf: &RepoConfig,
+) -> Bytes {
     // Create a Roa with the Cert Key
     let ks = read_cert_key(&cert_key_uri_l);
     // Uri of Repo of this CA
@@ -1084,7 +1100,8 @@ pub fn make_default_roa(ca_issuer_uri: &str, roa_string: &str, cert_key_uri_l: &
     let issuer_rsync = uri::Rsync::from_str(ca_issuer_uri).unwrap();
     let crl_rsync = uri::Rsync::from_str(crl_uri.as_str()).unwrap();
 
-    let file_content = adapted_functions::overwritten_functions::encode_ref_roa_builder(roa_builder, crl_rsync, issuer_rsync, uri_rsync, ks, None, conf);
+    let file_content =
+        adapted_functions::overwritten_functions::encode_ref_roa_builder(roa_builder, crl_rsync, issuer_rsync, uri_rsync, ks, None, conf);
 
     if write_to_disc {
         write_object_to_disc(&file_content, "roa", roa_string, ca_name, conf);
@@ -1186,7 +1203,6 @@ pub fn read_published_elements(
                     pos_paths.push(p1.path().to_str().unwrap().to_string());
                 }
 
-
                 // pathvector.push(dirs);
             }
         }
@@ -1265,23 +1281,19 @@ pub fn create_current_snapshot(
     }
 
     let mut upels = vec![];
-    if excluded_files.is_some(){
+    if excluded_files.is_some() {
         let excluding = excluded_files.unwrap();
-        for element in elements{
+        for element in elements {
             let file_name = filename_from_uri(element.uri());
             if excluding.contains(&file_name) {
                 continue;
             }
             upels.push(element);
         }
-    }
-    else{
+    } else {
         upels = elements;
     }
-    
 
-
-   
     let snapshot = Snapshot::new(session_id, serial_number, upels);
     let filename = write_snapshot_file(snapshot.clone(), session_id, serial_number, conf);
     (snapshot, filename)
@@ -1311,7 +1323,6 @@ pub fn write_snapshot_file_bytes(data: &[u8], session_id: Uuid, serial: u64, con
 
     fs::write(&filename, &data).unwrap();
     filename
-
 }
 
 // Create a new tal -> Only required in the setup process
@@ -1404,7 +1415,10 @@ pub fn create_default_config_abs(domain: String, base: String, port: String) -> 
 
     let ipv4 = vec![Ipv4Net::new(Ipv4Addr::new(first_octet, second_octet, 0, 0), prefix).unwrap()];
 
-    let ipblocks = vec![(4, IpBlock::from(resources::Prefix::new(Ipv4Addr::new(first_octet, second_octet, 0, 0), prefix)))];
+    let ipblocks = vec![(
+        4,
+        IpBlock::from(resources::Prefix::new(Ipv4Addr::new(first_octet, second_octet, 0, 0), prefix)),
+    )];
 
     let mut c = RepoConfig::new(
         base_dir,
@@ -1442,7 +1456,10 @@ pub fn create_alt_config(domain: String, port: String) -> RepoConfig {
     let ssl_pem_uri_l = "certs/".to_string() + &domain + ".crt";
     let ca_name = "newca".to_string();
     let ipv4 = vec![Ipv4Net::new(Ipv4Addr::new(first_octet, second_octet, 0, 0), prefix).unwrap()];
-    let ipblock = vec![(4, IpBlock::from(resources::Prefix::new(Ipv4Addr::new(first_octet, second_octet, 0, 0), prefix)))];
+    let ipblock = vec![(
+        4,
+        IpBlock::from(resources::Prefix::new(Ipv4Addr::new(first_octet, second_octet, 0, 0), prefix)),
+    )];
 
     let mut c = RepoConfig::new(
         base_dir,
@@ -1522,7 +1539,10 @@ pub fn create_default_ca(new_keys: bool, conf: &mut RepoConfig) {
     let parent_repo_uri_l = conf.BASE_REPO_DIR_l.to_string() + "ta/";
     let notification_uri = "https://".to_string() + &conf.DOMAIN + "/" + &conf.BASE_RRDP_DIR_l + "notification.xml";
     let ca_name = &conf.CA_NAME;
-    let resource_block = Prefix::new(Ipv4Addr::new(conf.DEFAULT_IPSPACE_FIRST_OCTET, conf.DEFAULT_IPSPACE_SEC_OCTET, 0, 0), conf.DEFAULT_IPSPACE_PREFIX);
+    let resource_block = Prefix::new(
+        Ipv4Addr::new(conf.DEFAULT_IPSPACE_FIRST_OCTET, conf.DEFAULT_IPSPACE_SEC_OCTET, 0, 0),
+        conf.DEFAULT_IPSPACE_PREFIX,
+    );
     let asn_min = Asn::from_u32(0);
     let asn_max = Asn::from_u32(100000);
 
@@ -1646,9 +1666,9 @@ pub fn create_ca(
     }
     cert.set_rpki_manifest(Some(uri::Rsync::from_str(&mft_uri).unwrap()));
     cert.build_v4_resource_blocks(|b| {
-        for a in &conf.IPBlocks{
+        for a in &conf.IPBlocks {
             // Either use absolute value or family id from asn
-            if a.0 != 4 && a.0 != 1{
+            if a.0 != 4 && a.0 != 1 {
                 continue;
             }
             b.push(a.1);
@@ -1656,9 +1676,9 @@ pub fn create_ca(
     });
 
     cert.build_v6_resource_blocks(|b| {
-        for a in &conf.IPBlocks{
+        for a in &conf.IPBlocks {
             // Either use absolute value or family id from asn
-            if a.0 != 6 && a.0 != 2{
+            if a.0 != 6 && a.0 != 2 {
                 continue;
             }
             b.push(a.1);
@@ -1861,7 +1881,7 @@ impl Clone for RepoConfig {
             DEFAULT_AS_RESOURCES_MAX: self.DEFAULT_AS_RESOURCES_MAX.clone(),
             SSL_KEY_WEBSERVER: self.SSL_KEY_WEBSERVER.clone(),
             CA_NAME: self.CA_NAME.clone(),
-            CA_TREE: HashMap::new(),
+            CA_TREE: self.CA_TREE.clone(),
             IPBlocks: self.IPBlocks.clone(),
             IPv4: self.IPv4.clone(),
             IPv6: self.IPv6.clone(),
@@ -1980,7 +2000,7 @@ impl Default for RepoConfig {
             BASE_KEY_DIR_l: "data/keys/".to_string(),
             BASE_TAL_DIR_l: "data/tal/".to_string(),
             BASE_TA_DIR_l: "data/tal/".to_string(),
-            DOMAIN:"my.server.com".to_string(),
+            DOMAIN: "my.server.com".to_string(),
             DOMAIN_l: "my.server.com".to_string(),
             DEFAULT_IPSPACE_FIRST_OCTET: 10,
             DEFAULT_IPSPACE_SEC_OCTET: 0,
@@ -2056,7 +2076,6 @@ pub fn make_cert_key(file_uri: &str, sig_algo: &str) -> KeyAndSigner {
     let private_key = PKey::private_key_from_der(&der).unwrap();
     let signer = OpenSslSigner::new();
 
-
     let path = std::path::Path::new(file_uri);
     let prefix = path.parent().unwrap();
     std::fs::create_dir_all(prefix).unwrap();
@@ -2094,7 +2113,7 @@ pub fn fill_signer(file_uri: &str, signer: &OpenSslSigner) -> KeyId {
 
 pub fn pub_and_priv_key(file_uri: &str) -> (PKey<Private>, PublicKey) {
     // If key does not exist yet: Create it
-    if fs::read(file_uri).is_err(){
+    if fs::read(file_uri).is_err() {
         println!("Key {} does not exist yet, creating new key", file_uri);
         make_cert_key(file_uri, "RSA");
     }
@@ -2110,11 +2129,10 @@ pub fn pub_and_priv_key(file_uri: &str) -> (PKey<Private>, PublicKey) {
 
 // Read the cert key from the repo
 pub fn read_cert_key(file_uri: &str) -> KeyAndSigner {
-    if fs::read(file_uri).is_err(){
+    if fs::read(file_uri).is_err() {
         println!("Key {} does not exist yet, creating new key", file_uri);
         make_cert_key(file_uri, "RSA");
     }
-
 
     let der = fs::read(file_uri).unwrap();
     let signer = OpenSslSigner::new();

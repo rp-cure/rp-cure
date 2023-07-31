@@ -3,6 +3,7 @@ use crate::consts;
 use crate::fuzzing::mft;
 use crate::util;
 use crate::util::read_files_from_folder;
+use crate::FuzzConfig;
 use asn1;
 use asn1::Asn1Writable;
 use asn1::BitString;
@@ -69,34 +70,33 @@ pub fn move_files_data(folder: String, filepaths: &Vec<(String, Vec<u8>, Vec<u8>
     }
 }
 
-pub fn create_objects(folder: String, max_file_amount: u16, dont_move: bool, oneshot: bool, amount: u32) {
-    let mut conf = repository::create_default_config(consts::domain.to_string());
-    let (cert_keys, new_conf) = util::create_cas(amount, vec![&conf], None);
-    conf.CA_TREE = new_conf.CA_TREE.clone();
-    let cws = util::get_cwd() + "/";
-    let output_folder = cws + "obj_cache/";
+pub fn create_objects(dont_move: bool, mut conf: FuzzConfig) {
+    // let (cert_keys, new_conf) = util::create_cas(conf.amount.into(), vec![&conf.repo_conf], None);
+    // conf.repo_conf.CA_TREE = new_conf.CA_TREE.clone();
+    // let cws = util::get_cwd() + "/";
+    // let output_folder = cws + "obj_cache/";
 
-    let (priv_keys, pub_keys) = fuzzing_interface::load_ee_ks(&conf, amount, false);
-    let roas = util::create_example_roas(&cert_keys, amount, &conf);
+    // let (priv_keys, pub_keys) = fuzzing_interface::load_ee_ks(&conf, amount, false);
+    // let roas = util::create_example_roas(&cert_keys, amount, &conf);
 
-    loop {
-        let data = generate_from_files_plain(&folder, &mut conf, amount, &cert_keys, "crl", &priv_keys, &pub_keys, &roas);
-        if data.len() == 0 {
-            println!("No more Objects in Folder {} - Exiting Process", folder);
-            return;
-        }
+    // loop {
+    //     let data = generate_from_files_plain(&folder, &mut conf, amount, &cert_keys, "crl", &priv_keys, &pub_keys, &roas);
+    //     if data.len() == 0 {
+    //         println!("No more Objects in Folder {} - Exiting Process", folder);
+    //         return;
+    //     }
 
-        serialize_data(&data);
+    //     serialize_data(&data);
 
-        move_files_data(folder.clone().to_string(), &data, dont_move);
-        if oneshot {
-            break;
-        }
-        // If folder is sufficiently full -> Wait
-        while util::fileamount_in_folder(&output_folder) >= max_file_amount.into() {
-            thread::sleep(Duration::from_millis(100));
-        }
-    }
+    //     move_files_data(folder.clone().to_string(), &data, dont_move);
+    //     if oneshot {
+    //         break;
+    //     }
+    //     // If folder is sufficiently full -> Wait
+    //     while util::fileamount_in_folder(&output_folder) >= max_file_amount.into() {
+    //         thread::sleep(Duration::from_millis(100));
+    //     }
+    // }
 }
 
 pub fn generate_from_files_plain(
@@ -141,54 +141,35 @@ pub fn generate_from_files_plain(
     objects
 }
 
-pub fn do_both(obj_folder: &str, conf: &mut RepoConfig) {
-    let cws = util::get_cwd() + "/";
-    let folder;
-    if obj_folder.starts_with("/") {
-        folder = obj_folder.to_string();
-    } else {
-        folder = cws.clone() + obj_folder;
-    }
-    let obj_folder = cws + "obj_cache/";
+pub fn do_both(mut conf: FuzzConfig) {
+    // for i in 0..conf.amount {
+    //     let ca_name = "ca".to_string() + &i.to_string();
+    //     conf.repo_conf.CA_TREE.insert(ca_name, "ta".to_string());
+    // }
 
-    fs::remove_dir_all(obj_folder.clone());
-    fs::create_dir_all(obj_folder.clone());
-    let amount;
-    if fs::metadata(folder.clone()).is_ok() && fs::metadata(folder.clone()).unwrap().is_file() {
-        amount = 1;
-    } else {
-        amount = read_dir(folder.clone()).unwrap().count();
-        // amount = fs::metadata(folder.clone()).unwrap().;
-    }
+    // create_objects(true, conf);
+    // let paths = read_dir(obj_folder.clone()).unwrap();
 
-    for i in 0..amount {
-        let ca_name = "ca".to_string() + &i.to_string();
-        conf.CA_TREE.insert(ca_name, "ta".to_string());
-    }
+    // let mut all_paths = vec![];
+    // for path in paths {
+    //     let p = path.unwrap().path();
+    //     let file_name = p.to_str().unwrap().to_string();
+    //     all_paths.push(file_name);
+    // }
 
-    create_objects(folder.clone(), 5, true, true, amount.try_into().unwrap());
-    let paths = read_dir(obj_folder.clone()).unwrap();
+    // let (cert_keys, new_conf) = util::create_cas(amount.try_into().unwrap(), vec![&conf], None);
+    // let roas = util::create_example_roas(&cert_keys, amount.try_into().unwrap(), &conf);
 
-    let mut all_paths = vec![];
-    for path in paths {
-        let p = path.unwrap().path();
-        let file_name = p.to_str().unwrap().to_string();
-        all_paths.push(file_name);
-    }
+    // // println!("Paths found: {:?}", paths);
+    // for file_name in all_paths {
+    //     // let p = path.unwrap().path();
+    //     // let file_name = p.to_str().unwrap();
+    //     handle_serialized_object(&file_name, &conf, 1, Some(roas), "crl");
+    //     fs::remove_file(&file_name);
 
-    let (cert_keys, new_conf) = util::create_cas(amount.try_into().unwrap(), vec![&conf], None);
-    let roas = util::create_example_roas(&cert_keys, amount.try_into().unwrap(), &conf);
-
-    // println!("Paths found: {:?}", paths);
-    for file_name in all_paths {
-        // let p = path.unwrap().path();
-        // let file_name = p.to_str().unwrap();
-        handle_serialized_object(&file_name, &conf, 1, Some(roas), "crl");
-        fs::remove_file(&file_name);
-
-        //repository::add_random_roa_ca(&conf, "ca0");
-        break;
-    }
+    //     //repository::add_random_roa_ca(&conf, "ca0");
+    //     break;
+    // }
 }
 
 pub fn generate_example_crls() {
