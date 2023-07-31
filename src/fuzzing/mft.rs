@@ -29,10 +29,10 @@ pub fn srun(conf: FuzzConfig) {
     let typ = &conf.typ.to_string();
     let total_amount = conf.amount;
 
-    let factory = ObjectFactory::new(total_amount);
+    let mut factory = ObjectFactory::new(50, "/tmp/sock");
     create_objects_new(true, conf);
 
-    handle_serialized_object_new(factory, repo_config, typ);
+    handle_serialized_object_new(&mut factory, repo_config, typ);
 }
 
 pub fn create_objects_new(oneshot: bool, mut conf: FuzzConfig) {
@@ -202,7 +202,7 @@ pub fn handle_serialized_object(path: &str, conf: &RepoConfig, index: u32, addit
     handle_serialized_object_inner(data, 0, conf);
 }
 
-pub fn handle_serialized_object_new(factory: ObjectFactory, conf: &RepoConfig, obj_type: &str) {
+pub fn handle_serialized_object_new(factory: &mut ObjectFactory, conf: &RepoConfig, obj_type: &str) {
     let data = util::read_serialized_data_new(factory);
 
     if data.is_empty() {

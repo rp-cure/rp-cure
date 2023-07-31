@@ -5,3 +5,10 @@ rp
 target	
 output
 bin
+roas_3
+roas_4
+rtreports
+sync/lib
+validator
+rpki_cache
+rpki_cache*

@@ -17,6 +17,7 @@ use clap::{command, Arg, CommandFactory, Parser};
 use core::panic;
 use std::collections::HashMap;
 use std::net::Ipv4Addr;
+use std::os::unix::net::UnixListener;
 use std::process::{Child, Command};
 use std::time::Instant;
 use std::{env, thread, vec};
@@ -27,6 +28,7 @@ mod consts;
 mod coverage_interface;
 mod fuzzing;
 mod generation_interface;
+mod object_generation;
 mod process_util;
 mod publication_point;
 mod vrps_analysis;
@@ -181,26 +183,24 @@ fn run(mut conf: FuzzConfig) {
     println!("<VRPS>\n{}", vrps);
 }
 
-fn generate(conf: FuzzConfig) {
+fn sign(conf: FuzzConfig) {
     if conf.dont_move {
         println!("Warning: Don't move is set to TRUE. The same files will be used continuously.")
     }
 
-    // let uri = uri.to_string();
+    let (roas, crls, mfts) = processing::create_aux_objects(&conf);
 
-    // TODO
-    // if typ == OpType::MFT {
-    //     fuzzing::mft::create_objects(uri, amount, dont_move, false, 4000, false);
-    // } else if typ == OpType::CRL {
-    //     fuzzing::crl::create_objects(uri, amount, dont_move, false, 4000);
-    // } else if typ == OpType::ROA || typ == OpType::ASPA || typ == OpType::GBR {
-    //     fuzzing::roa::create_objects_new(uri, amount, dont_move, false, 10000, false, &typ.to_string(), &conf);
-    // } else if typ == OpType::CERTCA {
-    //     fuzzing::cert::create_objects(uri, amount, dont_move, false, 10000);
-    // } else {
-    //     panic!("Unknown object type generator!");
-    // }
-    std::process::exit(0);
+    let socket = "/tmp/gensock".to_string() + &conf.id.to_string();
+    fs::remove_file(&socket).unwrap_or_default();
+
+    let stream = UnixListener::bind(&socket).unwrap();
+    stream.set_nonblocking(true).unwrap();
+
+    processing::create_objects(false, conf, roas, crls, mfts, &stream);
+}
+
+fn generate(conf: FuzzConfig) {
+    object_generation::start_generation();
 }
 
 fn fuzz(mut conf: FuzzConfig, folders: Option<Vec<String>>) {
@@ -212,47 +212,20 @@ fn fuzz(mut conf: FuzzConfig, folders: Option<Vec<String>>) {
     }
 
     println!("Info: Creating Folders");
-
     repository::initialize_repo(&mut conf.repo_conf, false, None);
-    let cws = get_cwd() + "/";
-    let rrdp_types = vec!["notification", "snapshot"];
+
+    let rrdp_types = vec!["notification", "snapshot", "delta"];
+
+    util::start_generation("./bin/generator", "roa");
+
+    let mut factory = process_util::ObjectFactory::new(50, "/tmp/sock");
 
     if !rrdp_types.contains(&conf.typ.to_string().as_str()) {
-        let (mut children, folders) = util::start_processes("./bin/object_generator", &conf.typ.to_string(), folders);
-        let obj_cache = cws + "obj_cache/";
+        conf.amount = 100;
 
-        let obj_per_iteration;
-        let repo_fn: &dyn Fn(&RepoConfig, u32);
-        let serialized_obj_fn: &dyn Fn(&str, &RepoConfig, u32, Option<Vec<(Bytes, String)>>, &str);
+        let (_, folders) = util::start_processes("./bin/signer", &conf.typ.to_string(), folders, conf.amount);
 
-        if conf.typ == OpType::MFT {
-            obj_per_iteration = 5000;
-
-            repo_fn = &fuzzing::mft::clear_repo;
-            serialized_obj_fn = &fuzzing::mft::handle_serialized_object;
-        } else if conf.typ == OpType::CERTCA {
-            obj_per_iteration = 10000;
-
-            repo_fn = &util::clear_repo;
-            serialized_obj_fn = &fuzzing::cert::handle_serialized_object;
-        } else if conf.typ == OpType::ROA || conf.typ == OpType::GBR || conf.typ == OpType::ASPA {
-            obj_per_iteration = 10000;
-
-            repo_fn = &util::clear_repo;
-            serialized_obj_fn = &fuzzing::roa::handle_serialized_object;
-        } else {
-            panic!("Unknown object type!");
-        }
-
-        util::start_fuzzing(
-            &obj_cache,
-            &conf.typ.to_string(),
-            folders,
-            obj_per_iteration,
-            repo_fn,
-            serialized_obj_fn,
-            &mut children,
-        );
+        util::start_fuzzing(folders, conf, &mut factory);
     } else {
         if conf.typ == OpType::NOTI {
             if conf.dont_move {
@@ -292,10 +265,11 @@ pub struct FuzzConfig {
     pub typ: OpType,
     pub uri: String,
     pub subtype: String,
-    pub amount: u16,
+    pub amount: u32,
     pub dont_move: bool,
     pub no_ee: bool,
     pub repo_conf: RepoConfig,
+    pub id: u8,
 }
 
 /// Simple program to greet a person
@@ -310,7 +284,7 @@ struct Args {
     typ: String,
 
     #[arg(short, long)]
-    uri: String,
+    uri: Option<String>,
 
     #[arg(short, long)]
     only_content: Option<bool>,
@@ -321,62 +295,28 @@ struct Args {
     #[arg(short, long)]
     subcommand: Option<String>,
 
-    /// Number of times to greet
     #[arg(short, long)]
-    amount: Option<u16>,
+    amount: Option<u32>,
+
+    #[arg(short, long)]
+    id: Option<u8>,
 }
 
 fn main() {
     util::clear_caches();
     let res = Args::parse();
 
-    // println!("{:?}", res);
-    // return;
-
-    // let matches = App::new("RP CURE")
-    //     .version("0.1.0")
-    //     .author("RP-CURE")
-    //     .about("A RPKI Relying Party Fuzzing Tool")
-    //     .subcommand(
-    //         App::new("run")
-    //             .about("Runs a command")
-    //             .arg(
-    //                 Arg::with_name("type")
-    //                     .long("type")
-    //                     .required(true)
-    //                     .takes_value(true)
-    //                     .help("Execution Type. Choose from run (Execute in a one-shot) or fuzz (Execute in a fuzzing mode)"),
-    //             )
-    //             .arg(
-    //                 Arg::with_name("uri")
-    //                     .long("uri")
-    //                     .required(true)
-    //                     .takes_value(true)
-    //                     .help("The URI to a file"),
-    //             )
-    //             .arg(
-    //                 Arg::with_name("oc")
-    //                     .long("only-content")
-    //                     .help("File is only the encapsulated content info of the object"),
-    //             )
-    //             .arg(
-    //                 Arg::with_name("dm")
-    //                     .long("dont-move")
-    //                     .help("Do not delete Objects after processing"),
-    //             )
-    //             .arg(Arg::with_name("st").long("sub-type").help("Subtype of VRPS analysis"))
-    //             .arg(Arg::with_name("am").long("amount").help("Amount of Objects to generate")),
-    //     )
-    //     .get_matches();
-
+    // Parse in the command line arguments
     let type_name = res.typ;
-    let uri_r = &res.uri;
+    let uri_r = &res.uri.unwrap_or("None".to_string());
     let no_ee = res.only_content.unwrap_or(false);
     let typ = parse_type(&type_name);
     let subtype = res.subcommand.unwrap_or("none".to_string());
     let amount = res.amount.unwrap_or(1);
     let dont_move = res.dont_move.is_some();
+    let id = res.id.unwrap_or(0);
 
+    // Ensure uri is absolute
     let tmp;
     let uri: &str;
     if uri_r.starts_with("/") {
@@ -394,6 +334,7 @@ fn main() {
         dont_move,
         no_ee,
         repo_conf: repository::create_default_config(consts::domain.to_string()),
+        id,
     };
 
     let c = res.command.as_str();
@@ -414,12 +355,16 @@ fn main() {
             println!("\n\n--- RPKI VRPS Analysis ---\n");
             vrps_analysis::start_analysis(fuzz_config);
         }
-        "generate" => {
-            generate(fuzz_config);
+        "sign" => {
+            sign(fuzz_config);
             return;
         }
         "fuzz" => {
             fuzz(fuzz_config, None);
+            return;
+        }
+        "generate" => {
+            generate(fuzz_config);
             return;
         }
         _ => unreachable!(),

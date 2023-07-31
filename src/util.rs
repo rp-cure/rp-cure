@@ -1,10 +1,13 @@
+use crate::fuzzing::processing;
 use crate::generation_interface::OpType;
+use crate::process_util;
 use crate::process_util::ObjectFactory;
 use crate::process_util::SerializableObject;
 use crate::publication_point::fuzzing_interface::generate_for_roas;
 use crate::publication_point::fuzzing_interface::load_ee_ks;
 use crate::publication_point::repository::after_roas_creation;
 use crate::publication_point::repository::KeyAndSigner;
+use crate::FuzzConfig;
 use bcder::encode::Values;
 use bcder::Mode;
 use bytes::Bytes;
@@ -209,7 +212,7 @@ pub fn test_for_crash(folder: &str) {
     }
 }
 
-pub fn read_serialized_data_new(factory: ObjectFactory) -> Vec<(String, Vec<u8>)> {
+pub fn read_serialized_data_new(factory: &mut ObjectFactory) -> Vec<(String, Vec<u8>)> {
     let sobj = factory.get_object();
 
     if sobj.is_none() {
@@ -436,7 +439,7 @@ pub fn fileamount_in_folder(dir: &str) -> usize {
     paths.count()
 }
 
-pub fn start_processes(binary_location: &str, obj_type: &str, folder_opt: Option<Vec<String>>) -> (Vec<Child>, Vec<String>) {
+pub fn start_processes(binary_location: &str, obj_type: &str, folder_opt: Option<Vec<String>>, amount: u32) -> (Vec<Child>, Vec<String>) {
     let bf = "data/corpus/";
     let mut f = vec![];
 
@@ -454,26 +457,43 @@ pub fn start_processes(binary_location: &str, obj_type: &str, folder_opt: Option
 
     let dont_move = false;
 
-    let amount = folders.len();
+    let proc_amount = folders.len();
+    let proc_amount = 1;
 
     let max_file_amount = 500;
 
     let mut children = vec![];
-    println!("Starting {} Processes", amount);
-    for i in 0..amount {
+    println!("Starting {} Processes", proc_amount);
+    for i in 0..proc_amount {
         let folder = &folders[i % folders.len()];
         let child = Command::new(binary_location)
-            .arg("gen")
-            .arg(obj_type)
-            .arg(folder)
-            .arg(max_file_amount.to_string())
-            .arg(dont_move.to_string())
+            .arg("sign")
+            .arg(&("--typ=".to_string() + obj_type))
+            .arg(&("--uri=".to_string() + folder))
+            .arg(&("--dont-move=".to_string() + &dont_move.to_string()))
+            .arg(&("--id=".to_string() + &i.to_string()))
+            .arg(&("--amount=".to_string() + &amount.to_string()))
             .spawn()
             .expect("failed to execute child");
         println!("Info: Started Process on Folder {}: PID {}", folder, child.id());
         children.push(child);
     }
     (children, folders)
+}
+
+pub fn start_generation(binary_location: &str, obj_type: &str) -> Vec<Child> {
+    let mut children = vec![];
+    let amount = 1;
+    println!("Starting {} Processes", amount);
+    for i in 0..amount {
+        let child = Command::new(binary_location)
+            .arg("generate")
+            .arg(&("--typ=".to_string() + obj_type))
+            .spawn()
+            .expect("failed to execute child");
+        children.push(child);
+    }
+    children
 }
 
 pub fn report_inconsistency(vprs: &str, filename: &str) {
@@ -1323,28 +1343,45 @@ pub fn start_fuzzing_xml(
     }
 }
 
-pub fn start_fuzzing(
-    obj_cache: &str,
-    obj_type: &str,
-    folders: Vec<String>,
-    obj_per_iteration: u32,
-    clear_repo_fn: &dyn Fn(&RepoConfig, u32),
-    use_serialized_object_fn: &dyn Fn(&str, &RepoConfig, u32, Option<Vec<(Bytes, String)>>, &str),
-    children: &mut Vec<Child>,
-) {
-    let conf = repository::create_default_config(consts::domain.to_string());
+fn print_progress(totalprocessed: u32, totalfiles: u32, proc_amount: u32, absstart: Instant) {
+    if proc_amount > 9000 {
+        let td: f32 = totalprocessed as f32 / totalfiles as f32;
+        if td == 1 as f32 {
+            println!("Finished!");
+            // return;
+        }
+        let fac: f64 = (1 as f32 / td - 1 as f32).into();
 
+        if absstart.elapsed().as_secs() < 1 {
+            return;
+        }
+        let t_total = absstart.elapsed().as_secs() as f64 * fac;
+        if t_total > 0 as f64 {
+            let dur = Duration::from_secs_f64(t_total);
+            println!(
+                "Progress {}%, remaining time estimate {}s {}m {}h [Elapsed Time: {:?}]",
+                (td * 100 as f32).to_string(),
+                (dur.as_secs_f64() % 60 as f64).floor(),
+                ((dur.as_secs_f64() % 3600 as f64) / 60.0).floor(),
+                (dur.as_secs_f64() / 3600.0).floor(),
+                absstart.elapsed()
+            );
+        } else {
+            println!("Time is up now");
+        }
+    }
+}
+
+pub fn start_fuzzing(folders: Vec<String>, conf: FuzzConfig, factory: &mut ObjectFactory) {
     let mut proc_amount = 0;
 
-    let totalfiles = get_fileamount_folders(folders);
+    // let totalfiles = get_fileamount_folders(folders);
 
-    println!("Info: Found a total of {} objects", totalfiles.to_string());
+    // println!("Info: Found a total of {} objects", totalfiles.to_string());
 
     println!("Info: Starting Fuzzer");
 
     println!("\nRunning...\n");
-
-    let mut cur_ind = 0;
 
     let mut totalprocessed: u32 = 0;
     let absstart = Instant::now();
@@ -1352,112 +1389,47 @@ pub fn start_fuzzing(
     let cws = get_cwd() + "/";
     let incon_file_dir = cws.clone() + "inconsistent_files/";
 
-    fs::create_dir_all(&incon_file_dir);
-    fs::create_dir_all(&(cws.clone() + "crash_reports/"));
+    fs::create_dir_all(&incon_file_dir).unwrap_or_default();
+    fs::create_dir_all(&(cws.clone() + "crash_reports/")).unwrap_or_default();
 
     loop {
-        let paths = read_dir(obj_cache.clone()).unwrap();
-        let mut found_path = false;
-        let mut crash;
-        for path in paths {
-            let st = Instant::now();
+        let new_obj = factory.get_object();
 
-            let start = Instant::now();
-            clear_repo_fn(&conf, 0);
-            found_path = true;
-
-            let p = path.unwrap().path();
-            let file_name = p.to_str().unwrap();
-
-            let start2 = Instant::now();
-            use_serialized_object_fn(file_name, &conf, cur_ind, None, obj_type);
-            let end2 = start2.elapsed();
-
-            let crashes = run_rp_processes("info");
-
-            let (iden, vrps_name) = store_vrps(file_name);
-            let r = &random_file_name();
-
-            let crash_file_name = incon_file_dir.clone() + "crash-" + &vrps_name + ".dump";
-            crash = handle_crashes(crashes, obj_type, &crash_file_name);
-
-            proc_amount += obj_per_iteration;
-            totalprocessed += obj_per_iteration;
-
-            if !iden {
-                let (_, _, _, ls) = get_rp_vrps();
-                println!("NOT IDENTICAL {:?}", (ls[0].len(), ls[1].len(), ls[2].len(), ls[3].len()));
-            }
-
-            // If something crashed or the vrps are not identical, store object
-            if crash {
-                println!("Crash: File name {}", file_name);
-                fs::rename(file_name, crash_file_name).unwrap();
-            } else if !iden {
-                let non_iden_file_name = incon_file_dir.clone() + "incon-" + &vrps_name + ".dump";
-                println!("Inconsistency: File name {}", file_name);
-                fs::rename(file_name, non_iden_file_name).unwrap();
-            } else {
-                fs::remove_file(file_name);
-            }
-            crash = false;
-
-            cur_ind += 1;
-
-            let end = start.elapsed();
-
-            // println!("Elapsed Time is {:?}", end);
-
-            if proc_amount > 9000 {
-                // println!(
-                //     "Processed {} objects in {} ",
-                //     proc_amount.to_string(),
-                //     g_duration.as_secs_f32().to_string()
-                // );
-
-                let td: f32 = totalprocessed as f32 / totalfiles as f32;
-                if td == 1 as f32 {
-                    println!("Finished!");
-                    // return;
-                }
-                let fac: f64 = (1 as f32 / td - 1 as f32).into();
-
-                if absstart.elapsed().as_secs() < 1 {
-                    continue;
-                }
-                let t_total = absstart.elapsed().as_secs() as f64 * fac;
-                if t_total > 0 as f64 {
-                    let dur = Duration::from_secs_f64(t_total);
-                    println!(
-                        "Progress {}%, remaining time estimate {}s {}m {}h [Elapsed Time: {:?}]",
-                        (td * 100 as f32).to_string(),
-                        (dur.as_secs_f64() % 60 as f64).floor(),
-                        ((dur.as_secs_f64() % 3600 as f64) / 60.0).floor(),
-                        (dur.as_secs_f64() / 3600.0).floor(),
-                        absstart.elapsed()
-                    );
-                } else {
-                    println!("Time is up now");
-                }
-
-                proc_amount = 0;
-            }
-        }
-        if !found_path {
-            // let mut any_running = false;
-            // for i in 0..children.len(){
-            //     let child = &mut children[i];
-            //     let runn = check_process_running(child);
-            //     if runn{
-            //         any_running = true;
-            //     }
-            // }
-            // if !any_running {
-            //     println!("All Generation Processes Exited -> Exiting");
-            //     return;
-            // }
-            // If no path was found, sleep for a while until something is done
+        if new_obj.is_none() {
             thread::sleep(Duration::from_millis(200));
+            println!("No objects found");
+            continue;
         }
+
+        let obj = new_obj.unwrap();
+
+        clear_repo(&conf.repo_conf, 0);
+
+        processing::handle_serialized_object(obj.clone(), &conf.repo_conf, &conf.typ.to_string());
+        println!("Info: Running objects");
+        let crashes = run_rp_processes("info");
+
+        let r = &random_file_name();
+        let (identical, vrps_name) = store_vrps(r);
+
+        let crash_file_name = incon_file_dir.clone() + "crash-" + &vrps_name + ".dump";
+        let crash = handle_crashes(crashes, &conf.typ.to_string(), &crash_file_name);
+
+        proc_amount += conf.amount;
+        totalprocessed += conf.amount;
+
+        if crash {
+            println!("Logging a crash in {}", crash_file_name);
+            fs::write(crash_file_name, serde_json::to_string(&obj).unwrap()).unwrap();
+        } else if !identical {
+            let non_iden_file_name = incon_file_dir.clone() + "incon-" + &vrps_name + ".dump";
+            println!("Inconsistency: {}", non_iden_file_name);
+            fs::write(non_iden_file_name, serde_json::to_string(&obj).unwrap()).unwrap();
+        }
+
+        // if proc_amount > 9000 {
+        //     print_progress(totalprocessed, totalfiles, proc_amount, absstart);
+        //     proc_amount = 0;
+        // }
     }
 }

@@ -114,7 +114,7 @@ fn create_aspa() {
     // fs::write("example.asa", aspa.encode_ref().to_captured(Mode::Der).into_bytes()).unwrap();
 }
 
-pub fn handle_serialized_object_new(factory: ObjectFactory, conf: &RepoConfig, obj_type: &str) {
+pub fn handle_serialized_object_new(factory: &mut ObjectFactory, conf: &RepoConfig, obj_type: &str) {
     let data = util::read_serialized_data_new(factory);
 
     if data.is_empty() {
@@ -144,6 +144,7 @@ pub fn handle_serialized_object_inner(conf: &RepoConfig, data: Vec<(String, Vec<
         objects.push(byte.clone());
 
         let random_s = util::random_file_name();
+
         repository::write_object_to_disc(&byte, obj_type, &random_s, "newca", conf);
     }
     repository::add_roa_str(
@@ -160,10 +161,10 @@ pub fn srun(conf: FuzzConfig) {
     let typ = &conf.typ.to_string();
     let total_amount = conf.amount;
 
-    let factory = ObjectFactory::new(total_amount);
+    let mut factory = ObjectFactory::new(50, "/tmp/sock");
     create_objects(true, conf);
 
-    handle_serialized_object_new(factory, repo_config, typ);
+    handle_serialized_object_new(&mut factory, repo_config, typ);
 }
 
 pub fn create_objects(oneshot: bool, conf: FuzzConfig) {

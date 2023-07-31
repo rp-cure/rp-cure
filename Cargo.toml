@@ -8,7 +8,7 @@ authors = ["RP-Cure"]
 [dependencies]
 bytes		= {version = "1.4.0"}
 base64 = "0.20.0"
-clap = "4.0.32"
+clap = {version="4.3.19", features=["derive"]}
 #rpki		= {version = "0.14.1", features=["repository", "softkeys", "xml", "rrdp", "serde"]} 
 rpki = {path="./rpki-rs-custom/rpki-rs/", features=["repository", "softkeys", "xml", "rrdp", "serde"]}
 openssl = "0.10.55"

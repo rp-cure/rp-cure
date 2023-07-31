@@ -520,7 +520,7 @@ pub fn extract_e_content_file(file_uri: &str) {
 pub fn extract_e_content(obj: Bytes, obj_type: Option<&str>) -> Option<Vec<u8>> {
     let new_obj = asn1::parse_single::<SignedDataObject>(&obj);
     if new_obj.is_err() {
-        // println!("Error: Could not parse Object");
+        println!("Error: Could not parse Object {}", base64::encode(&obj));
         return None;
     }
     let con = new_obj.unwrap().content.unwrap();
