@@ -16,21 +16,16 @@ fn ex_cmd(bin: &str, args: Vec<&str>, env: (&str, &str)) -> String {
 fn get_rate(binary: &str, name: &str) -> (f64, f64) {
     let profdata_file = name.to_string() + ".profraw";
     // Command to generate the coverage report
+    println!("Name is {}", name);
+
     if name == "routinator" {
         let start = std::time::Instant::now();
         ex_cmd(
             "llvm-profdata-16",
-            vec![
-                "merge",
-                &profdata_file,
-                "--sparse",
-                "--o",
-                &("out_".to_string() + name + ".profdata"),
-            ],
+            vec!["merge", &profdata_file, "--o", &("out_".to_string() + name + ".profdata")],
             ("", ""),
         );
         let duration = start.elapsed();
-        println!("Time elapsed in expensive_function3() is: {:?}", duration);
 
         let start = std::time::Instant::now();
         // Command to make report readable
@@ -41,16 +36,16 @@ fn get_rate(binary: &str, name: &str) -> (f64, f64) {
         );
 
         let end = start.elapsed();
-        println!("Time elapsed in expensive_function4() is: {:?}", end);
 
         if res.is_empty() {
+            println!("Result was empty");
+
             return (0.0, 0.0);
         }
 
         let start = std::time::Instant::now();
         let js: Value = serde_json::from_str(&res).unwrap();
         let end = start.elapsed();
-        println!("Time elapsed in expensive_function5() is: {:?}", end);
         println!("{}", &js["data"][0]["totals"]);
         let pc = &js["data"][0]["totals"]["lines"]["percent"];
         let pc: f64 = pc.as_f64().unwrap();
@@ -71,7 +66,6 @@ fn get_rate(binary: &str, name: &str) -> (f64, f64) {
             ("", ""),
         );
         let duration = start.elapsed();
-        println!("Time elapsed in expensive_function3() is: {:?}", duration);
 
         let start = std::time::Instant::now();
         // Command to make report readable
@@ -82,7 +76,6 @@ fn get_rate(binary: &str, name: &str) -> (f64, f64) {
         );
 
         let end = start.elapsed();
-        println!("Time elapsed in expensive_function4() is: {:?}", end);
 
         if res.is_empty() {
             return (0.0, 0.0);
@@ -110,7 +103,6 @@ pub fn testing() {
     let start = std::time::Instant::now();
     let rate = get_rate(binary, name);
     let duration = start.elapsed();
-    println!("Time elapsed in expensive_function2() is: {:?}", duration);
     println!("Rate: {:?}", rate);
 }
 

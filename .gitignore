@@ -12,3 +12,10 @@ sync/lib
 validator
 rpki_cache
 rpki_cache*
+cmd
+coverinfo
+crash_reports
+detailed_reports
+vrps_log
+inconsistent_files
+crashfiles

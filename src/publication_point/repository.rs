@@ -521,7 +521,7 @@ pub fn get_current_file_hash(file_extension: &str, ca_name: &str, conf: &RepoCon
 pub fn create_random_roa(conf: &RepoConfig) -> (Bytes, String) {
     let parent_cer_uri = "rsync://".to_string() + &conf.DOMAIN + "/" + &conf.BASE_REPO_DIR + "ta/" + &conf.CA_NAME + ".cer";
     let roa_string = generate_random_roa_string(10, 0, 0, 0);
-    println!("Generating random ROA: {}", roa_string);
+    // println!("Generating random ROA: {}", roa_string);
     let ca_name = &conf.CA_NAME;
     (
         make_default_roa(

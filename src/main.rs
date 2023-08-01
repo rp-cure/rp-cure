@@ -207,23 +207,25 @@ fn fuzz(mut conf: FuzzConfig, folders: Option<Vec<String>>) {
     println!("\n--- RPKI Relying Party Fuzzer ---\n");
     println!("Info: Object Type: {}", typ_to_name(&conf.typ.to_string()));
 
-    if generation_interface::test_run() {
-        return;
-    }
+    // TODO Re-Enable Test run
+
+    // if generation_interface::test_run() {
+    //     return;
+    // }
 
     println!("Info: Creating Folders");
     repository::initialize_repo(&mut conf.repo_conf, false, None);
 
     let rrdp_types = vec!["notification", "snapshot", "delta"];
 
-    util::start_generation("./bin/generator", "roa");
+    util::start_generation("./bin/generator", "roa", &conf.amount.to_string());
 
     let mut factory = process_util::ObjectFactory::new(50, "/tmp/sock");
 
     if !rrdp_types.contains(&conf.typ.to_string().as_str()) {
-        conf.amount = 100;
+        // conf.amount = 100;
 
-        let (_, folders) = util::start_processes("./bin/signer", &conf.typ.to_string(), folders, conf.amount);
+        let (_, folders) = util::start_processes("./bin/signer", &conf.typ.to_string(), folders, conf.amount, conf.raw);
 
         util::start_fuzzing(folders, conf, &mut factory);
     } else {
@@ -270,6 +272,7 @@ pub struct FuzzConfig {
     pub no_ee: bool,
     pub repo_conf: RepoConfig,
     pub id: u8,
+    pub raw: bool,
 }
 
 /// Simple program to greet a person
@@ -300,10 +303,14 @@ struct Args {
 
     #[arg(short, long)]
     id: Option<u8>,
+
+    #[arg(short, long)]
+    raw: Option<bool>,
 }
 
 fn main() {
     util::clear_caches();
+
     let res = Args::parse();
 
     // Parse in the command line arguments
@@ -313,8 +320,9 @@ fn main() {
     let typ = parse_type(&type_name);
     let subtype = res.subcommand.unwrap_or("none".to_string());
     let amount = res.amount.unwrap_or(1);
-    let dont_move = res.dont_move.is_some();
+    let dont_move = false;
     let id = res.id.unwrap_or(0);
+    let raw = res.raw.unwrap_or(false);
 
     // Ensure uri is absolute
     let tmp;
@@ -335,6 +343,7 @@ fn main() {
         no_ee,
         repo_conf: repository::create_default_config(consts::domain.to_string()),
         id,
+        raw,
     };
 
     let c = res.command.as_str();

@@ -1,6 +1,8 @@
+use crate::coverage_interface;
 use crate::fuzzing::processing;
 use crate::generation_interface::OpType;
 use crate::process_util;
+use crate::process_util::CoverageObject;
 use crate::process_util::ObjectFactory;
 use crate::process_util::SerializableObject;
 use crate::publication_point::fuzzing_interface::generate_for_roas;
@@ -14,6 +16,7 @@ use bytes::Bytes;
 use core::panic;
 use ipnet::Ipv4Net;
 use rand::{thread_rng, Rng};
+use regex::Regex;
 use rpki::repository::crypto::DigestAlgorithm;
 use rpki::repository::crypto::PublicKey;
 use rpki::repository::manifest::FileAndHash;
@@ -29,6 +32,7 @@ use std::error::Error;
 use std::fs;
 use std::fs::metadata;
 use std::fs::File;
+use std::io;
 use std::io::Read;
 use std::io::Write;
 use std::net::Ipv4Addr;
@@ -198,6 +202,7 @@ pub fn serialize_data_new(val: &Vec<(String, Vec<u8>)>) -> String {
         crls: None,
         roas: None,
         roa_names: None,
+        id: 0,
     };
 
     serde_json::to_string(&ob).unwrap()
@@ -439,7 +444,13 @@ pub fn fileamount_in_folder(dir: &str) -> usize {
     paths.count()
 }
 
-pub fn start_processes(binary_location: &str, obj_type: &str, folder_opt: Option<Vec<String>>, amount: u32) -> (Vec<Child>, Vec<String>) {
+pub fn start_processes(
+    binary_location: &str,
+    obj_type: &str,
+    folder_opt: Option<Vec<String>>,
+    amount: u32,
+    raw: bool,
+) -> (Vec<Child>, Vec<String>) {
     let bf = "data/corpus/";
     let mut f = vec![];
 
@@ -473,6 +484,7 @@ pub fn start_processes(binary_location: &str, obj_type: &str, folder_opt: Option
             .arg(&("--dont-move=".to_string() + &dont_move.to_string()))
             .arg(&("--id=".to_string() + &i.to_string()))
             .arg(&("--amount=".to_string() + &amount.to_string()))
+            .arg(&("--raw=".to_string() + &raw.to_string()))
             .spawn()
             .expect("failed to execute child");
         println!("Info: Started Process on Folder {}: PID {}", folder, child.id());
@@ -481,7 +493,7 @@ pub fn start_processes(binary_location: &str, obj_type: &str, folder_opt: Option
     (children, folders)
 }
 
-pub fn start_generation(binary_location: &str, obj_type: &str) -> Vec<Child> {
+pub fn start_generation(binary_location: &str, obj_type: &str, obj_amount: &str) -> Vec<Child> {
     let mut children = vec![];
     let amount = 1;
     println!("Starting {} Processes", amount);
@@ -489,6 +501,7 @@ pub fn start_generation(binary_location: &str, obj_type: &str) -> Vec<Child> {
         let child = Command::new(binary_location)
             .arg("generate")
             .arg(&("--typ=".to_string() + obj_type))
+            .arg(&("--amount=".to_string() + obj_amount))
             .spawn()
             .expect("failed to execute child");
         children.push(child);
@@ -556,10 +569,10 @@ pub fn report_crash(rp_name: &str, obj_type: &str, file_name: &str, send_msg: bo
 
     fs::write(&report_uri, &file_content).unwrap();
 
-    println!(
-        "{}",
-        "\n\n--> Found RP Crash, report written to ".to_string() + &report_uri + "\n\n"
-    );
+    // println!(
+    //     "{}",
+    //     "\n\n--> Found RP Crash, report written to ".to_string() + &report_uri + "\n\n"
+    // );
     file_content
     //process::exit(1);
 }
@@ -630,6 +643,8 @@ pub fn remove_folder_content(folder: &str) {
 pub fn clear_repo(conf: &RepoConfig, _: u32) {
     let r = get_cwd() + "/" + &conf.BASE_REPO_DIR_l.clone() + &conf.CA_NAME;
     let cwd = get_cwd();
+
+    remove_folder_content(&r);
     fs::remove_dir_all(&r).unwrap();
     fs::create_dir_all(&r).unwrap();
     remove_folder_content(&(cwd.clone() + "/rpki_cache_client"));
@@ -1179,15 +1194,22 @@ pub fn run_rp_processes(log_level: &str) -> Vec<(String, bool)> {
     check_rp_crash()
 }
 
-pub fn handle_crashes(pot_crashes: Vec<(String, bool)>, obj_type: &str, file_name: &str) -> bool {
-    let mut something_crashed = false;
+pub fn handle_crashes(pot_crashes: Vec<(String, bool)>, obj_type: &str, file_name: &str) -> Vec<(String, String, usize)> {
+    let mut crash_info = vec![];
     for p in pot_crashes {
         if p.1 {
+            let (crashfile, crashline);
+            if p.0 == "routinator" {
+                (crashfile, crashline) = get_crash_line_rt().unwrap();
+            } else {
+                (crashfile, crashline) = ("lala".to_string(), 0);
+            }
+
             report_crash(&p.0, obj_type, file_name, false);
-            something_crashed = true;
+            crash_info.push((p.0, crashfile, crashline));
         }
     }
-    something_crashed
+    crash_info
 }
 
 pub fn generate_ca_conf(ca_name: String) -> repository::RepoConfig {
@@ -1235,6 +1257,18 @@ pub fn store_files_xml(files: &Vec<(String, Bytes)>, filename: &str) {
     }
     let s = serde_json::to_string(&v).unwrap();
     fs::write(&filename, s).unwrap();
+}
+
+pub fn send_coverage(function_coverage: f64, line_coverage: f64, batch_id: u16) {
+    let obj = CoverageObject {
+        function_coverage,
+        line_coverage,
+        batch_id,
+    };
+
+    let data = serde_json::to_string(&obj).unwrap();
+
+    process_util::send_new_data_s(data, "/tmp/coverage");
 }
 
 pub fn start_fuzzing_xml(
@@ -1288,15 +1322,16 @@ pub fn start_fuzzing_xml(
             create_file_fn(nconfs.clone(), files.clone());
 
             let crashes = run_rp_processes("info");
+
             let (vrps, iden, _, _) = get_rp_vrps();
             let r = &random_file_name();
             let filename = get_cwd() + "/inconsistent_files/" + r;
 
             let c = handle_crashes(crashes, obj_type, &filename);
-            if c {
+            if !c.is_empty() {
                 store_files_xml(&files, &(filename));
             }
-            if c || !iden {
+            if !c.is_empty() || !iden {
                 println!("Found inconsistency!");
                 // store_files_xml(&files, &(filename + ".dump"));
             }
@@ -1372,6 +1407,25 @@ fn print_progress(totalprocessed: u32, totalfiles: u32, proc_amount: u32, abssta
     }
 }
 
+fn analyse_output(data: String) -> io::Result<(String, usize)> {
+    let re = Regex::new(r"thread '.*' panicked at '.*', (.*):\d+").unwrap();
+
+    for cap in re.captures_iter(&data) {
+        let file_line = &cap[1];
+        let split: Vec<&str> = file_line.split(':').collect();
+        let file_name = split[0].to_string();
+        let line_number: usize = split[1].parse().unwrap();
+        return Ok((file_name, line_number));
+    }
+
+    Err(io::Error::new(io::ErrorKind::Other, "No match found"))
+}
+
+pub fn get_crash_line_rt() -> io::Result<(String, usize)> {
+    let s = fs::read_to_string("output/routinator.error").unwrap();
+    analyse_output(s)
+}
+
 pub fn start_fuzzing(folders: Vec<String>, conf: FuzzConfig, factory: &mut ObjectFactory) {
     let mut proc_amount = 0;
 
@@ -1392,12 +1446,14 @@ pub fn start_fuzzing(folders: Vec<String>, conf: FuzzConfig, factory: &mut Objec
     fs::create_dir_all(&incon_file_dir).unwrap_or_default();
     fs::create_dir_all(&(cws.clone() + "crash_reports/")).unwrap_or_default();
 
+    let mut all_crashes = vec![];
+
     loop {
         let new_obj = factory.get_object();
 
         if new_obj.is_none() {
             thread::sleep(Duration::from_millis(200));
-            println!("No objects found");
+            // println!("No objects found");
             continue;
         }
 
@@ -1406,8 +1462,10 @@ pub fn start_fuzzing(folders: Vec<String>, conf: FuzzConfig, factory: &mut Objec
         clear_repo(&conf.repo_conf, 0);
 
         processing::handle_serialized_object(obj.clone(), &conf.repo_conf, &conf.typ.to_string());
-        println!("Info: Running objects");
+        // println!("Info: Running objects with length {}", obj.contents.len());
         let crashes = run_rp_processes("info");
+        let (fcov, lcov) = coverage_interface::get_coverage("routinator");
+        send_coverage(fcov, lcov, obj.id);
 
         let r = &random_file_name();
         let (identical, vrps_name) = store_vrps(r);
@@ -1418,18 +1476,26 @@ pub fn start_fuzzing(folders: Vec<String>, conf: FuzzConfig, factory: &mut Objec
         proc_amount += conf.amount;
         totalprocessed += conf.amount;
 
-        if crash {
-            println!("Logging a crash in {}", crash_file_name);
-            fs::write(crash_file_name, serde_json::to_string(&obj).unwrap()).unwrap();
+        if !crash.is_empty() {
+            let mut was_new = false;
+            for c in crash.clone() {
+                if !all_crashes.contains(&c) {
+                    was_new = true;
+                    all_crashes.push(c);
+                }
+            }
+
+            if was_new {
+                println!("Logging a new crash in {}", crash_file_name);
+                println!("All crashes: {:?}", all_crashes);
+                fs::write(crash_file_name, serde_json::to_string(&obj).unwrap()).unwrap();
+            } else {
+                // println!("Knew all crashes already {:?}", crash);
+            }
         } else if !identical {
             let non_iden_file_name = incon_file_dir.clone() + "incon-" + &vrps_name + ".dump";
             println!("Inconsistency: {}", non_iden_file_name);
             fs::write(non_iden_file_name, serde_json::to_string(&obj).unwrap()).unwrap();
         }
-
-        // if proc_amount > 9000 {
-        //     print_progress(totalprocessed, totalfiles, proc_amount, absstart);
-        //     proc_amount = 0;
-        // }
     }
 }

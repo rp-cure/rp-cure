@@ -5,7 +5,6 @@ use crate::{consts, publication_point::repository, util};
 pub fn create_normal_repo() {
     let mut con = repository::create_default_config(consts::domain.to_string());
     repository::initialize_repo(&mut con, false, None);
-    println!("Got here");
 
     for i in 0..10 {
         let roa_string = con.DEFAULT_IPSPACE_FIRST_OCTET.to_string()
@@ -19,8 +18,6 @@ pub fn create_normal_repo() {
 
 pub fn test_run() -> bool {
     println!("Info: Running Testrun to check if RPs work correctly...");
-
-    println!("Got here");
 
     create_normal_repo();
     util::run_rp_processes("info");

@@ -276,7 +276,7 @@ pub fn create_objects(
             return;
         }
 
-        move_files_data(uri.clone(), &data.filenames, dont_move);
+        // move_files_data(uri.clone(), &data.filenames, dont_move);
 
         while process_util::is_stopped() {
             thread::sleep(Duration::from_millis(100));
@@ -293,6 +293,7 @@ pub fn generate_from_files_plain_inner(
     roass: &Option<Vec<(Bytes, String)>>,
     crlss: &Option<Vec<(Bytes, String)>>,
     mftss: &Option<Vec<(Bytes, String)>>,
+    id: u16,
 ) -> SerializableObject {
     let mut filenames = vec![];
     let mut contents = vec![];
@@ -317,7 +318,7 @@ pub fn generate_from_files_plain_inner(
         if conf.typ == OpType::ROA || conf.typ == OpType::MFT || conf.typ == OpType::GBR || conf.typ == OpType::ASPA {
             let a = &obj[i];
             let e_content;
-            let mut use_raw = false;
+            let mut use_raw = conf.raw;
 
             // Allows to test objects that already have an EE-Cert by extracting the E-Content
             if conf.no_ee {
@@ -409,6 +410,7 @@ pub fn generate_from_files_plain_inner(
             mfts: Some(mfts),
             roas: Some(roas),
             roa_names: Some(roa_names),
+            id,
         };
     } else if conf.typ == OpType::CERTCA {
         ret = SerializableObject {
@@ -418,6 +420,7 @@ pub fn generate_from_files_plain_inner(
             mfts: Some(mfts),
             roas: Some(roas),
             roa_names: Some(roa_names),
+            id,
         };
     } else {
         ret = SerializableObject {
@@ -427,6 +430,7 @@ pub fn generate_from_files_plain_inner(
             crls: None,
             mfts: None,
             roa_names: None,
+            id,
         };
     }
 
@@ -458,9 +462,9 @@ pub fn generate_from_files_plain(
 
     let batch = batch.unwrap();
 
-    let ret = generate_from_files_plain_inner(batch.contents, priv_keys, pub_keys, ca_keys, &conf, roas, crls, mfts);
+    let ret = generate_from_files_plain_inner(batch.contents, priv_keys, pub_keys, ca_keys, &conf, roas, crls, mfts, batch.id);
 
-    process_util::acknowledge(&conf.id.to_string());
+    process_util::acknowledge(conf.id, batch.id);
 
     Some(ret)
 }

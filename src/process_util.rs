@@ -5,6 +5,10 @@ use std::{
     os::unix::net::{UnixListener, UnixStream},
 };
 
+use reqwest::Response;
+
+use crate::coverage_interface;
+
 fn accept_new_client(stream: &UnixListener) -> String {
     let op = stream.accept();
     if op.is_err() {
@@ -51,8 +55,17 @@ pub fn send_new_data_s(data: String, socket: &str) {
     drop(stream);
 }
 
-pub fn acknowledge(id: &str) {
-    send_new_data_s(id.to_string(), "/tmp/ack");
+pub fn acknowledge(worker_id: u8, batch_id: u16) {
+    // let coverage_info = coverage_interface::get_coverage("routinator");
+    let response = ReponseObject {
+        worker_id: worker_id,
+        batch_id: batch_id,
+        coverage: 0.0,
+    };
+
+    let serialized = serde_json::to_string(&response).unwrap();
+
+    send_new_data_s(serialized, "/tmp/ack");
 }
 
 pub fn count_acks(stream: &UnixListener) -> HashMap<u8, u16> {
@@ -71,6 +84,18 @@ pub fn count_acks(stream: &UnixListener) -> HashMap<u8, u16> {
     }
 
     map
+}
+
+pub fn get_responses(stream: &UnixListener) -> Vec<ReponseObject> {
+    let arr = read_all_clients(stream);
+    let mut ret = vec![];
+
+    for v in arr {
+        let val = serde_json::from_str::<ReponseObject>(&v).unwrap();
+        ret.push(val);
+    }
+
+    ret
 }
 
 fn stop_generation() {
@@ -94,6 +119,7 @@ pub struct SerializableObject {
     pub crls: Option<Vec<Vec<u8>>>,
     pub roas: Option<Vec<Vec<u8>>>,
     pub roa_names: Option<Vec<String>>,
+    pub id: u16,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
@@ -106,6 +132,7 @@ pub struct ObjectInfo {
 pub struct GenerationBatch {
     pub contents: Vec<(Vec<u8>, ObjectInfo)>,
     pub typ: String,
+    pub id: u16,
 }
 
 pub struct ObjectFactory {
@@ -158,6 +185,46 @@ impl ObjectFactory {
     }
 }
 
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
+pub struct ReponseObject {
+    pub worker_id: u8,
+    pub batch_id: u16,
+    pub coverage: f64,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
+pub struct CoverageObject {
+    pub function_coverage: f64,
+    pub line_coverage: f64,
+    pub batch_id: u16,
+}
+
+pub struct CoverageFactory {
+    pub stream: UnixListener,
+}
+
+impl CoverageFactory {
+    pub fn new() -> CoverageFactory {
+        let socket = "/tmp/coverage".to_string();
+        fs::remove_file(&socket).unwrap_or_default();
+
+        let s = UnixListener::bind(&socket).unwrap();
+        s.set_nonblocking(true).unwrap();
+
+        CoverageFactory { stream: s }
+    }
+
+    pub fn get_coverages(&mut self) -> Vec<CoverageObject> {
+        let new_objs = read_all_clients(&self.stream);
+        let mut ret = vec![];
+        for obj in new_objs {
+            let res = serde_json::from_str::<CoverageObject>(&obj).unwrap();
+            ret.push(res);
+        }
+        ret
+    }
+}
+
 pub struct GenerationFactory {
     pub objects: Vec<String>,
     pub stream: UnixListener,
@@ -188,7 +255,7 @@ impl GenerationFactory {
         }
     }
 
-    pub fn send_batch(&mut self, data: String) -> bool {
+    pub fn send_batch(&mut self, data: String) -> Vec<ReponseObject> {
         // Check which socket needs more objects
         let initial_socket = self.cur_socket;
         loop {
@@ -199,7 +266,7 @@ impl GenerationFactory {
             if self.sent_objects.get(&self.cur_socket).unwrap() >= &self.limit {
                 let next_socket = (self.cur_socket + 1) % self.amount_sockets;
                 if next_socket == initial_socket {
-                    return false;
+                    return vec![];
                 }
                 self.cur_socket = next_socket;
             } else {
@@ -219,15 +286,25 @@ impl GenerationFactory {
         }
 
         // Count how many objects were acknowledged
-        let acks = count_acks(&self.stream);
-        for val in acks {
-            if self.sent_objects.contains_key(&val.0) {
-                let tmp = self.sent_objects.get_mut(&val.0).unwrap();
-                *tmp -= val.1;
+        let res = get_responses(&self.stream);
+        for val in &res {
+            if self.sent_objects.contains_key(&val.worker_id) {
+                let tmp = self.sent_objects.get_mut(&val.worker_id).unwrap();
+                *tmp -= 1;
             }
         }
 
-        return true;
+        return res;
+
+        // let acks = count_acks(&self.stream);
+        // for val in acks {
+        //     if self.sent_objects.contains_key(&val.0) {
+        //         let tmp = self.sent_objects.get_mut(&val.0).unwrap();
+        //         *tmp -= val.1;
+        //     }
+        // }
+
+        // return true;
     }
 }
 
