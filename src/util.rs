@@ -202,7 +202,7 @@ pub fn serialize_data_new(val: &Vec<(String, Vec<u8>)>) -> String {
         crls: None,
         roas: None,
         roa_names: None,
-        id: 0,
+        id: 3,
     };
 
     serde_json::to_string(&ob).unwrap()
@@ -1453,18 +1453,27 @@ pub fn start_fuzzing(folders: Vec<String>, conf: FuzzConfig, factory: &mut Objec
 
         if new_obj.is_none() {
             thread::sleep(Duration::from_millis(200));
-            // println!("No objects found");
+            println!("No objects found");
             continue;
         }
 
         let obj = new_obj.unwrap();
+
+        println!("Batch size is {}", obj.contents.len());
 
         clear_repo(&conf.repo_conf, 0);
 
         processing::handle_serialized_object(obj.clone(), &conf.repo_conf, &conf.typ.to_string());
         // println!("Info: Running objects with length {}", obj.contents.len());
         let crashes = run_rp_processes("info");
+
+        let start = Instant::now();
         let (fcov, lcov) = coverage_interface::get_coverage("routinator");
+        let elapsed = start.elapsed();
+        // println!("Time elapsed in coverage: {:?}", elapsed);
+
+        fs::remove_file("routinator.profdata");
+
         send_coverage(fcov, lcov, obj.id);
 
         let r = &random_file_name();
@@ -1494,8 +1503,8 @@ pub fn start_fuzzing(folders: Vec<String>, conf: FuzzConfig, factory: &mut Objec
             }
         } else if !identical {
             let non_iden_file_name = incon_file_dir.clone() + "incon-" + &vrps_name + ".dump";
-            println!("Inconsistency: {}", non_iden_file_name);
-            fs::write(non_iden_file_name, serde_json::to_string(&obj).unwrap()).unwrap();
+            // println!("Inconsistency: {}", non_iden_file_name);
+            // fs::write(non_iden_file_name, serde_json::to_string(&obj).unwrap()).unwrap();
         }
     }
 }

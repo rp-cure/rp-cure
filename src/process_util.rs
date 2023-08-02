@@ -255,9 +255,18 @@ impl GenerationFactory {
         }
     }
 
-    pub fn send_batch(&mut self, data: String) -> Vec<ReponseObject> {
+    pub fn send_batch(&mut self, data: String) -> Option<Vec<ReponseObject>> {
         // Check which socket needs more objects
         let initial_socket = self.cur_socket;
+        let res = get_responses(&self.stream);
+        for val in &res {
+            if self.sent_objects.contains_key(&val.worker_id) {
+                let tmp = self.sent_objects.get_mut(&val.worker_id).unwrap();
+                *tmp -= 1;
+            }
+        }
+
+        println!("Sending data");
         loop {
             if !self.sent_objects.contains_key(&self.cur_socket) {
                 break;
@@ -266,7 +275,7 @@ impl GenerationFactory {
             if self.sent_objects.get(&self.cur_socket).unwrap() >= &self.limit {
                 let next_socket = (self.cur_socket + 1) % self.amount_sockets;
                 if next_socket == initial_socket {
-                    return vec![];
+                    return None;
                 }
                 self.cur_socket = next_socket;
             } else {
@@ -286,15 +295,8 @@ impl GenerationFactory {
         }
 
         // Count how many objects were acknowledged
-        let res = get_responses(&self.stream);
-        for val in &res {
-            if self.sent_objects.contains_key(&val.worker_id) {
-                let tmp = self.sent_objects.get_mut(&val.worker_id).unwrap();
-                *tmp -= 1;
-            }
-        }
 
-        return res;
+        return Some(res);
 
         // let acks = count_acks(&self.stream);
         // for val in acks {

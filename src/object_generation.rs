@@ -73,7 +73,7 @@ fn mutate_batch(inputs: &Vec<(Vec<u8>, ObjectInfo)>) -> Vec<Vec<u8>> {
                 continue;
             }
 
-            // mutate(&mut data);
+            mutate(&mut data);
 
             outputs.push(data);
         }
@@ -120,7 +120,7 @@ impl SucessTracker {
     }
 
     pub fn best_coverage(&mut self) -> u16 {
-        let mut best_coverage = 0.0;
+        let mut best_coverage = -1.0;
         let mut best_id = 0;
         for (id, coverage) in self.child_coverage.iter() {
             if coverage > &best_coverage {
@@ -138,7 +138,7 @@ impl SucessTracker {
 }
 
 pub fn start_generation() {
-    let mut factory = GenerationFactory::new(10, 1);
+    let mut factory = GenerationFactory::new(100, 1);
     let mut coverage_factory = CoverageFactory::new();
 
     let mut queue = VecDeque::new();
@@ -149,8 +149,11 @@ pub fn start_generation() {
 
     let conf = repository::create_default_config("my.server.com".to_string());
 
-    let deflation_limit = 125;
-    let deflation_rate = 2;
+    // How many objects per batch min
+    let deflation_limit = 10;
+
+    // How many times to divide a batch
+    let deflation_rate = 10;
 
     let mut best_coverage: f64 = 0.0;
     let mut current_best = None;
@@ -171,7 +174,7 @@ pub fn start_generation() {
                 let base_roa = repository::create_random_roa(&conf).0.to_vec();
                 v = vec![(base_roa.clone(), info)];
             } else {
-                // println!("Using cached best");
+                println!("Using cached best");
 
                 v = current_best.clone().unwrap();
             }
@@ -198,21 +201,28 @@ pub fn start_generation() {
 
         let serialized = serde_json::to_string(&batch).unwrap();
 
-        factory.send_batch(serialized);
+        let mut responses = factory.send_batch(serialized.clone());
+
+        while responses.is_none() {
+            thread::sleep(Duration::from_millis(1000));
+            responses = factory.send_batch(serialized.clone());
+            println!("Sleeping for a little");
+        }
 
         let cloned_map = map.clone();
 
         let responses = coverage_factory.get_coverages();
 
         for re in responses {
+            println!("Coverage {}", re.line_coverage);
+
             let index = re.batch_id;
 
             if !parent_map.contains_key(&index) {
                 // If new batch is better than what we had -> use it
                 // TODO This needs more sophisticated logic, we cant discard batches completly if they are not better
-                println!("Coverage {}", re.line_coverage);
 
-                if re.line_coverage > best_coverage {
+                if re.line_coverage > best_coverage || re.line_coverage == 0.0 {
                     best_coverage = re.line_coverage;
 
                     // Code duplication to below, fix this
@@ -267,6 +277,7 @@ pub fn start_generation() {
                             new_ids.push(new_id);
 
                             parent_map.insert(new_id, best_id);
+                            map.insert(new_id, new_batch.clone());
 
                             queue.push_back(new_batch);
                         }
@@ -274,7 +285,9 @@ pub fn start_generation() {
                     } else {
                         // Inflate back to original size by generating mutations of object
                         let mut objects = vec![];
+                        println!("inflating");
                         let mutated = mutate_batch(&best_batch.contents);
+                        println!("Mutation finished");
                         for o in mutated {
                             let info = ObjectInfo {
                                 manipulated_fields: vec![],

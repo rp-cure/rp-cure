@@ -30,6 +30,7 @@ mod fuzzing;
 mod generation_interface;
 mod object_generation;
 mod process_util;
+mod profraw;
 mod publication_point;
 mod vrps_analysis;
 
@@ -309,6 +310,12 @@ struct Args {
 }
 
 fn main() {
+    // generation_interface::create_normal_repo();
+    // util::run_rp_processes("info");
+
+    profraw::read();
+    return;
+
     util::clear_caches();
 
     let res = Args::parse();
