@@ -1,7 +1,8 @@
-use byteorder::{LittleEndian, ReadBytesExt};
+use byteorder::{ByteOrder, LittleEndian, ReadBytesExt};
 use std::fs::File;
 use std::io::{Error, Read, Seek, SeekFrom};
 use std::str;
+use std::time::Instant;
 
 #[derive(Debug)]
 struct ProfrawHeader {
@@ -114,92 +115,119 @@ fn read_profraw_header_new(file: &mut File) -> Result<ProfrawHeaderNew, Error> {
 }
 
 fn read_function_record(file: &mut File) -> Result<FunctionRecord, Error> {
+    let mut buffer = [0; 48]; // The total size of the record is 44 bytes.
+    file.read_exact(&mut buffer)?;
+    let mut cursor = std::io::Cursor::new(buffer);
+
     Ok(FunctionRecord {
-        name_ref: file.read_u64::<LittleEndian>()?,
-        func_hash: file.read_u64::<LittleEndian>()?,
-        counter_ref: file.read_u64::<LittleEndian>()?,
-        func_ref: file.read_u64::<LittleEndian>()?,
-        value_exp: file.read_u64::<LittleEndian>()?,
-        num_counters: file.read_u32::<LittleEndian>()?,
-        init_arr: file.read_u32::<LittleEndian>()?,
+        name_ref: cursor.read_u64::<LittleEndian>()?,
+        func_hash: cursor.read_u64::<LittleEndian>()?,
+        counter_ref: cursor.read_u64::<LittleEndian>()?,
+        func_ref: cursor.read_u64::<LittleEndian>()?,
+        value_exp: cursor.read_u64::<LittleEndian>()?,
+        num_counters: cursor.read_u32::<LittleEndian>()?,
+        init_arr: cursor.read_u32::<LittleEndian>()?,
     })
 }
 
 fn read_counters(file: &mut File, num_counters: u64) -> Result<Vec<u64>, Error> {
-    let mut counters = Vec::new();
-    for _ in 0..num_counters {
-        counters.push(file.read_u64::<LittleEndian>()?);
-    }
+    let mut buffer = vec![0; 8 * num_counters as usize];
+    file.read_exact(&mut buffer)?;
+
+    let counters: Vec<u64> = buffer.chunks_exact(8).map(|chunk| LittleEndian::read_u64(chunk)).collect();
+
     Ok(counters)
 }
 
 fn read_function_names(file: &mut File, names_size: u64) -> Result<Vec<String>, Error> {
-    let mut names = Vec::new();
-    let mut name_buffer = vec![0; names_size as usize];
-    file.read_exact(&mut name_buffer)?;
-
-    let mut start = 0;
-    for i in 0..names_size {
-        if name_buffer[i as usize] == 0 {
-            let name = str::from_utf8(&name_buffer[start..i as usize]);
-            if name.is_err() {
-                println!("Error");
-                continue;
-            }
-            let name = name.unwrap();
-            names.push(name.to_string());
-            start = i as usize + 1;
-        }
+    // let mut names = Vec::new();
+    let v = file.read_u64::<LittleEndian>().unwrap();
+    for i in 0..10 {
+        let v = file.read_u8().unwrap();
+        println!("v is {}", v);
+        // let mut buf = [0; 2];
+        // file.read_exact(&mut buf).unwrap();
+        // println!("buf is {:?}", hex::encode(buf));
+        // println!("Next char is {}", str::from_utf8(&buf).unwrap_or_default());
     }
-    Ok(names)
+    Ok(vec![])
+    // file.read_buf(buf)
+    // println!("names_size: {}", names_size);
+    // let mut name_buffer = vec![0; names_size as usize];
+    // file.read_exact(&mut name_buffer)?;
+
+    // let mut start = 0;
+    // for i in 0..names_size {
+    //     if name_buffer[i as usize] == 0 {
+    //         let name = str::from_utf8(&name_buffer[start..i as usize]);
+    //         if name.is_err() {
+    //             println!("Error");
+    //             continue;
+    //         }
+    //         let name = name.unwrap();
+    //         names.push(name.to_string());
+    //         start = i as usize + 1;
+    //     }
+    // }
+    // Ok(names)
 }
 
-pub fn read() -> Result<(), Error> {
-    let mut file = File::open("/home/nvogel/Schreibtisch/stuff/profraw_test/default.profraw")?;
+fn read_function_records(file: &mut File, num_data: u64) -> Result<Vec<FunctionRecord>, Error> {
+    let mut function_records = Vec::new();
 
-    // Read the header
-    let header = read_profraw_header_new(&mut file)?;
-    println!("{:?}", header);
-    // return Ok(());
+    let mut buffer = vec![0; 48 * num_data as usize]; // The total size of the record is 44 bytes.
+    file.read_exact(&mut buffer)?;
+    let mut cursor = std::io::Cursor::new(buffer);
 
-    // Read the function records
+    for _ in 0..num_data {
+        let fr = FunctionRecord {
+            name_ref: cursor.read_u64::<LittleEndian>()?,
+            func_hash: cursor.read_u64::<LittleEndian>()?,
+            counter_ref: cursor.read_u64::<LittleEndian>()?,
+            func_ref: cursor.read_u64::<LittleEndian>()?,
+            value_exp: cursor.read_u64::<LittleEndian>()?,
+            num_counters: cursor.read_u32::<LittleEndian>()?,
+            init_arr: cursor.read_u32::<LittleEndian>()?,
+        };
+        function_records.push(fr);
+    }
+    Ok(function_records)
+}
+
+pub fn read() -> (f64, f64) {
+    let start = Instant::now();
+
+    // let mut file = File::open("/home/nvogel/Schreibtisch/stuff/profraw_test/default.profraw")?;
+    let mut file = File::open("routinator.profraw").unwrap();
+
+    let header = read_profraw_header_new(&mut file).unwrap();
+
+    // Discard not needed Byts
     for i in 0..4 {
         file.read_u64::<LittleEndian>();
     }
-    let mut function_records = Vec::new();
-    for _ in 0..header.data_size {
-        // Each function record is 32 bytes
-        function_records.push(read_function_record(&mut file)?);
-    }
-    println!("Function records {:?}", function_records);
+    let function_records = read_function_records(&mut file, header.data_size)?;
+    let counters = read_counters(&mut file, header.counters_size).unwrap();
 
-    // Read the counters
-    let counters = read_counters(&mut file, header.counters_size)?; // Each counter is 8 bytes
-    println!("{:?}", counters);
-
-    // Read the function names
-    let function_names = read_function_names(&mut file, header.names_size)?;
-    println!("{:?}", function_names);
+    let larger_zero = counters.iter().filter(|&&x| x > 0).count();
 
     let mut executed_function_count: usize = 0;
     let mut current_counter_index: usize = 0;
-    for (i, function_record) in function_records.iter().enumerate() {
-        if function_record.num_counters > 0 {
-            let function_execution_count = counters[current_counter_index];
-            current_counter_index += function_record.num_counters as usize;
-            if function_execution_count > 0 {
-                executed_function_count += 1;
-                println!("Function  was executed {} times", function_execution_count);
+    let executed_function_count: usize = function_records
+        .iter()
+        .filter(|function_record| {
+            if function_record.num_counters > 0 {
+                let function_execution_count = counters[current_counter_index];
+                current_counter_index += function_record.num_counters as usize;
+                function_execution_count > 0
+            } else {
+                false
             }
-        }
-    }
+        })
+        .count();
 
-    // Print the percentage of executed functions
     let total_function_count = function_records.len();
     let executed_percentage = (executed_function_count as f64 / total_function_count as f64) * 100.0;
-    println!(
-        "{} out of {} functions were executed ({}%)",
-        executed_function_count, total_function_count, executed_percentage
-    );
-    Ok(())
+
+    return (executed_percentage, larger_zero as f64 / counters.len() as f64 * 100.0);
 }
