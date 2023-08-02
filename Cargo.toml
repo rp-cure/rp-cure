@@ -31,6 +31,7 @@ dirs =          {version = "1.0.4"}
 oid = "0.2.1"
 ring = "0.16.20"
 regex = "1"
+byteorder = "1.4"
 
 [features]
 roa_fuzz = []
