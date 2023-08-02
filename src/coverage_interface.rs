@@ -2,7 +2,7 @@ use std::{fs, process::Command};
 
 use serde_json::Value;
 
-use crate::util;
+use crate::{profraw, util};
 
 fn ex_cmd(bin: &str, args: Vec<&str>, env: (&str, &str)) -> String {
     let mut cmd = Command::new(bin);
@@ -17,81 +17,10 @@ fn get_rate(binary: &str, name: &str) -> (f64, f64) {
     let profdata_file = name.to_string() + ".profraw";
     // Command to generate the coverage report
 
-    if name == "routinator" {
-        let start = std::time::Instant::now();
-        ex_cmd(
-            "llvm-profdata-16",
-            vec!["merge", &profdata_file, "--o", &("out_".to_string() + name + ".profdata")],
-            ("", ""),
-        );
-        let duration = start.elapsed();
-        println!("Time elapsed in expensive_function3() is: {:?}", duration);
-
-        let start = std::time::Instant::now();
-        // Command to make report readable
-        let res = ex_cmd(
-            "llvm-cov-16",
-            vec!["export", "--instr-profile", &("out_".to_string() + name + ".profdata"), binary],
-            ("", ""),
-        );
-
-        let end = start.elapsed();
-        println!("Time elapsed in expensive_function1() is: {:?}", end);
-
-        if res.is_empty() {
-            println!("Result was empty");
-
-            return (0.0, 0.0);
-        }
-
-        let start = std::time::Instant::now();
-        let js: Value = serde_json::from_str(&res).unwrap();
-        let end = start.elapsed();
-        println!("Time elapsed in expensive_function2() is: {:?}", end);
-
-        // println!("{}", &js["data"][0]["totals"]);
-        let pc = &js["data"][0]["totals"]["lines"]["percent"];
-        let pc: f64 = pc.as_f64().unwrap();
-        let pc2 = &js["data"][0]["totals"]["functions"]["percent"];
-        let pc2: f64 = pc2.as_f64().unwrap();
-        (pc, pc2)
+    if name == "routinator" || name == "fort" || name == "rpki-client" {
+        return profraw::read(&(name.to_string() + ".profraw"));
     } else {
-        let start = std::time::Instant::now();
-        ex_cmd(
-            "llvm-profdata",
-            vec![
-                "merge",
-                &profdata_file,
-                "--sparse",
-                "--o",
-                &("out_".to_string() + name + ".profdata"),
-            ],
-            ("", ""),
-        );
-        let duration = start.elapsed();
-
-        let start = std::time::Instant::now();
-        // Command to make report readable
-        let res = ex_cmd(
-            "llvm-cov",
-            vec!["export", "--instr-profile", &("out_".to_string() + name + ".profdata"), binary],
-            ("", ""),
-        );
-
-        let end = start.elapsed();
-
-        if res.is_empty() {
-            return (0.0, 0.0);
-        }
-
-        let start = std::time::Instant::now();
-        let js: Value = serde_json::from_str(&res).unwrap();
-        let end = start.elapsed();
-        let pc = &js["data"][0]["totals"]["lines"]["percent"];
-        let pc: f64 = pc.as_f64().unwrap();
-        let pc2 = &js["data"][0]["totals"]["functions"]["percent"];
-        let pc2: f64 = pc2.as_f64().unwrap();
-        (pc, pc2)
+        panic!("Not implemented yet");
     }
 }
 

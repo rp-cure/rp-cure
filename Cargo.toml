@@ -32,7 +32,6 @@ oid = "0.2.1"
 ring = "0.16.20"
 regex = "1"
 byteorder = "1.4"
-memmap = "0.7.0"
 
 [features]
 roa_fuzz = []

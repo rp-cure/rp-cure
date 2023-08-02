@@ -310,19 +310,6 @@ struct Args {
 }
 
 fn main() {
-    // generation_interface::create_normal_repo();
-    // util::run_rp_processes("info");
-
-    let start = Instant::now();
-    println!("{:?}", coverage_interface::get_coverage("routinator"));
-    let llvm_time = start.elapsed();
-    let start = Instant::now();
-    profraw::read();
-    println!("");
-    println!("Time LLVM {:?}", llvm_time);
-    println!("Time Parser: {:?}", start.elapsed());
-    return;
-
     util::clear_caches();
 
     let res = Args::parse();

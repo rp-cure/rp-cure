@@ -4,6 +4,11 @@ use std::io::{Error, Read, Seek, SeekFrom};
 use std::str;
 use std::time::Instant;
 
+/*
+Using the existing LLVM Tools is not suitable for extracting coverage information as they take > 1s to extract the info.
+This profraw file parser brings down this time to ca. 1ms, allowing coverage info extracting after each iteration.
+*/
+
 #[derive(Debug)]
 struct ProfrawHeader {
     magic: u64,
@@ -16,37 +21,12 @@ struct ProfrawHeader {
     counters_delta: u64,
     names_begin: u64,
     value_kind_last: u64,
+    binary_id_offset: u64,
+    mem_prof_offset: u64,
+    hash_type: u64,
+    hash_offset: u64,
+    unused: u64,
 }
-
-#[derive(Debug)]
-struct ProfrawHeaderNew {
-    magic: u64,
-    version: u64,
-    binary_id_size: u64,
-    data_size: u64,
-    padding_before_counters: u64,
-    counters_size: u64,
-    padding_after_counters: u64,
-    names_size: u64,
-    counters_delta: u64,
-    names_begin: u64,
-    value_kind_last: u64,
-}
-
-// #[derive(Debug)]
-// struct ProfrawHeaderNew {
-//     magic: u64,
-//     version: u64,
-//     binary_id_size: u64,
-//     counters_delta: u64,
-//     names_delta: u64,
-//     num_data: u64,
-//     padding_before_counters: u64,
-//     counters_size: u64,
-//     padding_after_counters: u64,
-//     names_size: u64,
-//     value_kind_last: u64,
-// }
 
 #[derive(Debug)]
 struct FunctionRecord {
@@ -68,65 +48,92 @@ struct ProfrawFile {
 }
 
 fn read_profraw_header(file: &mut File) -> Result<ProfrawHeader, Error> {
-    Ok(ProfrawHeader {
-        magic: file.read_u64::<LittleEndian>()?,
-        version: file.read_u64::<LittleEndian>()?,
-        data_size: file.read_u64::<LittleEndian>()?,
-        padding_before_counters: file.read_u64::<LittleEndian>()?,
-        counters_size: file.read_u64::<LittleEndian>()?,
-        padding_after_counters: file.read_u64::<LittleEndian>()?,
-        names_size: file.read_u64::<LittleEndian>()?,
-        counters_delta: file.read_u64::<LittleEndian>()?,
-        names_begin: file.read_u64::<LittleEndian>()?,
-        value_kind_last: file.read_u64::<LittleEndian>()?,
-    })
-}
+    let magic = file.read_u64::<LittleEndian>()?;
+    let version = file.read_u64::<LittleEndian>()?;
 
-// fn read_profraw_header_new(file: &mut File) -> Result<ProfrawHeaderNew, Error> {
-//     Ok(ProfrawHeaderNew {
-//         magic: file.read_u64::<LittleEndian>()?,
-//         version: file.read_u64::<LittleEndian>()?,
-//         binary_id_size: file.read_u64::<LittleEndian>()?,
-//         counters_delta: file.read_u64::<LittleEndian>()?,
-//         names_delta: file.read_u64::<LittleEndian>()?,
-//         num_data: file.read_u64::<LittleEndian>()?,
-//         padding_before_counters: file.read_u64::<LittleEndian>()?,
-//         counters_size: file.read_u64::<LittleEndian>()?,
-//         padding_after_counters: file.read_u64::<LittleEndian>()?,
-//         names_size: file.read_u64::<LittleEndian>()?,
-//         value_kind_last: file.read_u64::<LittleEndian>()?,
-//     })
-// }
+    let mut buffer;
 
-fn read_profraw_header_new(file: &mut File) -> Result<ProfrawHeaderNew, Error> {
-    Ok(ProfrawHeaderNew {
-        magic: file.read_u64::<LittleEndian>()?,
-        version: file.read_u64::<LittleEndian>()?,
-        binary_id_size: file.read_u64::<LittleEndian>()?,
-        data_size: file.read_u64::<LittleEndian>()?,
-        padding_before_counters: file.read_u64::<LittleEndian>()?,
-        counters_size: file.read_u64::<LittleEndian>()?,
-        padding_after_counters: file.read_u64::<LittleEndian>()?,
-        names_size: file.read_u64::<LittleEndian>()?,
-        counters_delta: file.read_u64::<LittleEndian>()?,
-        names_begin: file.read_u64::<LittleEndian>()?,
-        value_kind_last: file.read_u64::<LittleEndian>()?,
-    })
-}
-
-fn read_function_record(file: &mut File) -> Result<FunctionRecord, Error> {
-    let mut buffer = [0; 48]; // The total size of the record is 44 bytes.
+    if version < 5 {
+        buffer = vec![0; 48];
+    } else if version < 6 {
+        buffer = vec![0; 64];
+    } else {
+        buffer = vec![0; 64 + 5 * 8];
+    }
     file.read_exact(&mut buffer)?;
     let mut cursor = std::io::Cursor::new(buffer);
 
-    Ok(FunctionRecord {
-        name_ref: cursor.read_u64::<LittleEndian>()?,
-        func_hash: cursor.read_u64::<LittleEndian>()?,
-        counter_ref: cursor.read_u64::<LittleEndian>()?,
-        func_ref: cursor.read_u64::<LittleEndian>()?,
-        value_exp: cursor.read_u64::<LittleEndian>()?,
-        num_counters: cursor.read_u32::<LittleEndian>()?,
-        init_arr: cursor.read_u32::<LittleEndian>()?,
+    let unused;
+    if version < 6 {
+        unused = 0;
+    } else {
+        unused = cursor.read_u64::<LittleEndian>()?;
+    }
+    let data_size = cursor.read_u64::<LittleEndian>()?;
+    let padding_before_counters;
+    if version < 5 {
+        padding_before_counters = 0;
+    } else {
+        padding_before_counters = cursor.read_u64::<LittleEndian>()?;
+    }
+    let counters_size = cursor.read_u64::<LittleEndian>()?;
+
+    let padding_after_counters;
+    if version < 5 {
+        padding_after_counters = 0;
+    } else {
+        padding_after_counters = cursor.read_u64::<LittleEndian>()?;
+    }
+
+    let names_size = cursor.read_u64::<LittleEndian>()?;
+    let counters_delta = cursor.read_u64::<LittleEndian>()?;
+    let names_begin = cursor.read_u64::<LittleEndian>()?;
+    let value_kind_last = cursor.read_u64::<LittleEndian>()?;
+
+    let hashtype;
+    if version >= 6 {
+        hashtype = cursor.read_u64::<LittleEndian>()?;
+    } else {
+        hashtype = 0;
+    }
+
+    let hash_offset;
+    if version >= 6 {
+        hash_offset = cursor.read_u64::<LittleEndian>()?;
+    } else {
+        hash_offset = 0;
+    }
+
+    let binary_id_offset;
+    if version >= 6 {
+        binary_id_offset = cursor.read_u64::<LittleEndian>()?;
+    } else {
+        binary_id_offset = 0;
+    }
+
+    let mem_prof_offset;
+    if version >= 6 {
+        mem_prof_offset = cursor.read_u64::<LittleEndian>()?;
+    } else {
+        mem_prof_offset = 0;
+    }
+
+    Ok(ProfrawHeader {
+        magic,
+        version,
+        unused,
+        data_size,
+        padding_before_counters,
+        counters_size,
+        padding_after_counters,
+        names_size,
+        counters_delta,
+        names_begin,
+        value_kind_last,
+        binary_id_offset,
+        mem_prof_offset,
+        hash_type: hashtype,
+        hash_offset,
     })
 }
 
@@ -137,39 +144,6 @@ fn read_counters(file: &mut File, num_counters: u64) -> Result<Vec<u64>, Error> 
     let counters: Vec<u64> = buffer.chunks_exact(8).map(|chunk| LittleEndian::read_u64(chunk)).collect();
 
     Ok(counters)
-}
-
-fn read_function_names(file: &mut File, names_size: u64) -> Result<Vec<String>, Error> {
-    // let mut names = Vec::new();
-    let v = file.read_u64::<LittleEndian>().unwrap();
-    for i in 0..10 {
-        let v = file.read_u8().unwrap();
-        println!("v is {}", v);
-        // let mut buf = [0; 2];
-        // file.read_exact(&mut buf).unwrap();
-        // println!("buf is {:?}", hex::encode(buf));
-        // println!("Next char is {}", str::from_utf8(&buf).unwrap_or_default());
-    }
-    Ok(vec![])
-    // file.read_buf(buf)
-    // println!("names_size: {}", names_size);
-    // let mut name_buffer = vec![0; names_size as usize];
-    // file.read_exact(&mut name_buffer)?;
-
-    // let mut start = 0;
-    // for i in 0..names_size {
-    //     if name_buffer[i as usize] == 0 {
-    //         let name = str::from_utf8(&name_buffer[start..i as usize]);
-    //         if name.is_err() {
-    //             println!("Error");
-    //             continue;
-    //         }
-    //         let name = name.unwrap();
-    //         names.push(name.to_string());
-    //         start = i as usize + 1;
-    //     }
-    // }
-    // Ok(names)
 }
 
 fn read_function_records(file: &mut File, num_data: u64) -> Result<Vec<FunctionRecord>, Error> {
@@ -194,24 +168,20 @@ fn read_function_records(file: &mut File, num_data: u64) -> Result<Vec<FunctionR
     Ok(function_records)
 }
 
-pub fn read() -> (f64, f64) {
-    let start = Instant::now();
+pub fn read(filename: &str) -> (f64, f64) {
+    let mut file = File::open(filename).unwrap();
 
-    // let mut file = File::open("/home/nvogel/Schreibtisch/stuff/profraw_test/default.profraw")?;
-    let mut file = File::open("routinator.profraw").unwrap();
+    let header = read_profraw_header(&mut file).unwrap();
 
-    let header = read_profraw_header_new(&mut file).unwrap();
-
-    // Discard not needed Byts
-    for i in 0..4 {
-        file.read_u64::<LittleEndian>();
+    // Discard not needed Bytes
+    for _ in 0..4 {
+        file.read_u64::<LittleEndian>().unwrap();
     }
-    let function_records = read_function_records(&mut file, header.data_size)?;
+    let function_records = read_function_records(&mut file, header.data_size).unwrap();
     let counters = read_counters(&mut file, header.counters_size).unwrap();
 
     let larger_zero = counters.iter().filter(|&&x| x > 0).count();
 
-    let mut executed_function_count: usize = 0;
     let mut current_counter_index: usize = 0;
     let executed_function_count: usize = function_records
         .iter()
