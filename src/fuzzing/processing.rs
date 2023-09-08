@@ -13,7 +13,9 @@ use crate::{
         fuzzing_interface,
         repository::{self, after_roas_creation, RepoConfig},
     },
-    util, FuzzConfig,
+    util,
+    vrps_analysis::extend_signed_attr,
+    FuzzConfig,
 };
 use crate::{generation_interface::OpType, publication_point::repository::create_current_snapshot};
 use crate::{
@@ -23,7 +25,7 @@ use crate::{
 use crate::{process_util::GenerationBatch, publication_point::repository::get_current_session_notification};
 use crate::{process_util::ObjectInfo, publication_point::repository::write_notification_file};
 use bcder::{
-    encode::{self, Values},
+    encode::{self, PrimitiveContent, Values},
     Captured, Mode,
 };
 use bytes::Bytes;
@@ -40,6 +42,8 @@ use rpki::{
     },
     uri,
 };
+
+use hex::FromHex;
 
 use super::{cert, crl};
 
@@ -173,13 +177,13 @@ pub fn create_aux_objects(
     let (roas, crls, mfts);
     if conf.typ == OpType::CRL || conf.typ == OpType::MFT {
         let (cert_keys, _) = util::create_cas(conf.amount.into(), vec![&conf.repo_conf], None);
-        roas = Some(util::create_example_roas(&cert_keys, conf.amount.into(), &conf.repo_conf));
+        roas = Some(util::create_example_roas(conf.amount.into()));
         mfts = None;
         crls = None;
     } else if conf.typ == OpType::CERTCA {
         let (cert_keys, _) = util::create_cas(conf.amount.into(), vec![&conf.repo_conf], None);
 
-        let roas_i = util::create_example_roas(&cert_keys, conf.amount.into(), &conf.repo_conf);
+        let roas_i = util::create_example_roas(conf.amount.into());
         let crls_i = util::create_example_crls(&cert_keys, conf.amount.into(), &conf.repo_conf);
         let mfts_i = util::create_example_mfts(&cert_keys, conf.amount.into(), &roas_i, &crls_i, &conf.repo_conf);
 
@@ -284,6 +288,96 @@ pub fn create_objects(
     }
 }
 
+pub fn sign_signed_object(data: &Bytes, conf: &RepoConfig, ca_name: &str) -> Vec<u8> {
+    let obj = asn1::parse_single::<asn1p::ContentInfoSpec>(&data);
+
+    if obj.is_err() {
+        return data.to_vec();
+    }
+    let mut obj = obj.unwrap();
+
+    let mut content = obj.content.unwrap();
+
+    // Handle SignerInfos
+
+    // TODO Change for other objects
+    let signer = repository::read_cert_key(&(conf.BASE_l.clone() + "fuzzing_keys/" + ca_name + "_roa"));
+
+    let si_raw = asn1::write_single(&content.signerInfos).unwrap();
+    let si_set = asn1::parse_single::<asn1::SetOf<asn1p::SignerInfos>>(&si_raw);
+    if si_set.is_err() {
+        return data.to_vec();
+    }
+    let si_set = si_set.unwrap();
+    let si_vec: Vec<asn1p::SignerInfos> = si_set.into_iter().collect();
+    let mut si = si_vec[0].clone();
+    let tmp = asn1::write_single(&content.encapContentInfo.eContent.unwrap()).unwrap();
+    let l;
+    if (tmp[1] >> 7) & 1 != 0 {
+        // More than 1 length byte
+        l = 2 + (tmp[1] & 0x7F) as usize;
+    } else {
+        l = 2;
+    }
+    // Need to cut away the size value for the octetstring
+    let raw_content: &[u8] = &tmp[l..];
+    let d = sha256::digest(raw_content);
+
+    let u = <[u8; 32]>::from_hex(d).unwrap();
+
+    let dig: &[u8] = &Bytes::from(u.to_vec());
+    let v = asn1::SetOfWriter::new(vec![dig]);
+    let tmp = asn1::write_single(&v).unwrap();
+    let tl = asn1::parse_single::<asn1::Tlv>(&tmp).unwrap();
+
+    let pk: &[u8] = &signer
+        .get_pub_key()
+        .key_identifier()
+        .encode_ref()
+        .to_captured(Mode::Der)
+        .into_bytes()[2..];
+    si.sid = Some(pk);
+
+    let mut sigattr = vec![];
+    for attr in si.signedAttrs.unwrap() {
+        // Message Digest
+        if attr.contentType.to_string() == "1.2.840.113549.1.9.4" {
+            let new_attr = asn1p::SignedAttribute {
+                contentType: attr.contentType,
+                value: tl,
+            };
+            sigattr.push(new_attr);
+        } else {
+            sigattr.push(attr);
+        }
+    }
+
+    let sw = asn1::SequenceOfWriter::new(sigattr);
+    let sa_raw = asn1::write_single(&sw).unwrap();
+    let seq = asn1::parse_single::<asn1::SequenceOf<asn1p::SignedAttribute>>(&sa_raw);
+
+    si.signedAttrs = Some(seq.unwrap());
+
+    // Signature in SignedAttributes
+    // This is necessary because the RPKI is weird
+    let sig: &[u8] = &signer.sign(&extend_signed_attr(&sa_raw[2..].to_vec()));
+    let tmp = asn1::write_single(&sig).unwrap();
+    let tl = asn1::parse_single::<asn1::Tlv>(&tmp).unwrap();
+    si.signature = tl;
+
+    let sw = asn1::SetOfWriter::new(vec![si]);
+    let tmp = asn1::write_single(&sw).unwrap();
+    let si = asn1::parse_single::<asn1::Tlv>(&tmp).unwrap();
+
+    content.signerInfos = si;
+
+    obj.content = Some(content);
+
+    let new_bytes = asn1::write_single(&obj).unwrap();
+
+    new_bytes
+}
+
 pub fn generate_from_files_plain_inner(
     obj: Vec<(Vec<u8>, ObjectInfo)>,
     priv_keys: Vec<PKey<Private>>,
@@ -335,7 +429,8 @@ pub fn generate_from_files_plain_inner(
 
             let re;
             if use_raw {
-                re = e_content;
+                let s = sign_signed_object(&e_content, &conf.repo_conf, &a.1.ca_index.to_string());
+                re = s;
             } else {
                 re = fuzzing_interface::generate_signed_data_from_bytes(
                     e_content,
@@ -349,10 +444,11 @@ pub fn generate_from_files_plain_inner(
                     pub_keys[i].clone(),
                     "newca",
                     None,
-                );
+                )
+                .to_vec();
             }
             filenames.push(a.1.filename.clone());
-            contents.push(re.to_vec());
+            contents.push(re);
         } else if conf.typ == OpType::CRL {
             let ca_name = "ca".to_string() + &i.to_string();
 

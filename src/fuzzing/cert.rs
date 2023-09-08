@@ -992,7 +992,7 @@ pub fn create_objects(folder: String, max_file_amount: u16, dont_move: bool, one
     let output_folder = cws + "obj_cache/";
     let (priv_keys, pub_keys) = load_ee_ks(&conf, amount, false);
 
-    let roas = util::create_example_roas(&cert_keys, amount, &conf);
+    let roas = util::create_example_roas(amount);
     let crls = util::create_example_crls(&cert_keys, amount, &conf);
     let mfts = util::create_example_mfts(&cert_keys, amount, &roas, &crls, &conf);
 

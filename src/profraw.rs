@@ -1,4 +1,5 @@
 use byteorder::{ByteOrder, LittleEndian, ReadBytesExt};
+use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::{Error, Read, Seek, SeekFrom};
 use std::str;
@@ -168,7 +169,7 @@ fn read_function_records(file: &mut File, num_data: u64) -> Result<Vec<FunctionR
     Ok(function_records)
 }
 
-pub fn read(filename: &str) -> (f64, f64) {
+pub fn read(filename: &str) -> (f64, f64, HashSet<u64>) {
     let mut file = File::open(filename).unwrap();
 
     let header = read_profraw_header(&mut file).unwrap();
@@ -183,21 +184,47 @@ pub fn read(filename: &str) -> (f64, f64) {
     let larger_zero = counters.iter().filter(|&&x| x > 0).count();
 
     let mut current_counter_index: usize = 0;
-    let executed_function_count: usize = function_records
-        .iter()
-        .filter(|function_record| {
-            if function_record.num_counters > 0 {
-                let function_execution_count = counters[current_counter_index];
-                current_counter_index += function_record.num_counters as usize;
-                function_execution_count > 0
-            } else {
-                false
+
+    let mut executed_fs = HashSet::new();
+
+    for r in 0..function_records.len() {
+        let counter_amount = function_records[r].func_hash;
+        if counter_amount > 0 {
+            let function_execution_count = counters[current_counter_index];
+            current_counter_index += counter_amount as usize;
+            if function_execution_count > 0 {
+                executed_fs.insert(r as u64);
             }
-        })
-        .count();
+        }
+    }
+
+    // let executed_functions = function_records.iter().map(|function_record| {
+    //     if function_record.func_hash > 0 {
+    //         let function_execution_count = counters[current_counter_index];
+    //         current_counter_index += function_record.func_hash as usize;
+    //         function_execution_count > 0
+    //     } else {
+    //         false
+    //     }
+    //     function_ind += 1;
+    // });
+
+    // println!("Executed functions: {}/{}", executed_functions.count(), function_records.len());
+
+    // for r in &function_records {
+    //     if r.func_hash != 2 {
+    //         println!("Function {:?} has {:?} counters", r.name_ref, r.func_hash);
+    //     }
+    // }
+
+    // println!("Length hashes here {:?}", function_records);
+
+    // let hashes: Vec<u64> = executed_functions.map(|x| x.func_ref).collect();
+
+    let executed_function_count: usize = executed_fs.len();
 
     let total_function_count = function_records.len();
     let executed_percentage = (executed_function_count as f64 / total_function_count as f64) * 100.0;
 
-    return (executed_percentage, larger_zero as f64 / counters.len() as f64 * 100.0);
+    return (executed_percentage, larger_zero as f64 / counters.len() as f64 * 100.0, executed_fs);
 }

@@ -283,6 +283,15 @@ pub struct SignedDataSpec<'a> {
 }
 
 #[derive(asn1::Asn1Read, asn1::Asn1Write)]
+pub struct SignedDataSign<'a> {
+    pub version: u8,
+    pub digestAlgorithms: asn1::Tlv<'a>,
+    pub encapContentInfo: asn1::Tlv<'a>,
+    pub certificates: asn1::Tlv<'a>,
+    pub signerInfos: asn1::Tlv<'a>,
+}
+
+#[derive(asn1::Asn1Read, asn1::Asn1Write)]
 pub struct SignedAttribute<'a> {
     pub contentType: asn1::ObjectIdentifier,
     pub value: asn1::Tlv<'a>,

@@ -1,4 +1,4 @@
-use std::{fs, process::Command};
+use std::{collections::HashSet, fs, process::Command};
 
 use serde_json::Value;
 
@@ -13,7 +13,7 @@ fn ex_cmd(bin: &str, args: Vec<&str>, env: (&str, &str)) -> String {
     res.to_string()
 }
 
-fn get_rate(binary: &str, name: &str) -> (f64, f64) {
+fn get_rate(binary: &str, name: &str) -> (f64, f64, HashSet<u64>) {
     let profdata_file = name.to_string() + ".profraw";
     // Command to generate the coverage report
 
@@ -41,7 +41,7 @@ pub fn testing() {
 pub fn testing_2() {
     util::remove_folder_content("coverinfo");
     util::run_rp_processes("info");
-    let (com_cov, fun_cov) = go_coverage();
+    let (com_cov, fun_cov, fun_hashes) = go_coverage();
     println!("Go coverage: {}, {}", com_cov, fun_cov);
 
     let binary = "/home/nvogel/git/rp-cure/rp/bin/routinator";
@@ -75,7 +75,7 @@ pub fn read_go_file() {
     println!("{:?}", ret);
 }
 
-pub fn get_coverage(rp_name: &str) -> (f64, f64) {
+pub fn get_coverage(rp_name: &str) -> (f64, f64, HashSet<u64>) {
     if rp_name == "octo" {
         return go_coverage();
     } else {
@@ -84,7 +84,7 @@ pub fn get_coverage(rp_name: &str) -> (f64, f64) {
     }
 }
 
-pub fn go_coverage() -> (f64, f64) {
+pub fn go_coverage() -> (f64, f64, HashSet<u64>) {
     let report = convert_go_report();
     println!("Report {:?}", report);
     let raw = read_go_func(report);
@@ -111,7 +111,9 @@ pub fn go_coverage() -> (f64, f64) {
 
     let function_coverage = executed as f64 / raw.len() as f64;
     let statement_coverage = raw.last().unwrap().last().unwrap().parse::<f64>().unwrap();
-    (statement_coverage, function_coverage)
+
+    // TODO
+    (statement_coverage, function_coverage, HashSet::new())
 }
 
 pub fn convert_go_report() -> String {

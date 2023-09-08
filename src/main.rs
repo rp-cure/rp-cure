@@ -109,7 +109,7 @@ pub fn store_example_roa() {
     let conf = repository::create_default_config("my.server.com".to_string());
     let cws = util::get_cwd() + "/";
 
-    let roas = util::create_example_roas(&vec![], 10000, &conf);
+    let roas = util::create_example_roas(10000);
 
     fs::create_dir_all(cws.clone() + "roas_4/").unwrap();
 
@@ -310,6 +310,13 @@ struct Args {
 }
 
 fn main() {
+    // let conf = repository::create_default_config("my.server.com".to_string());
+    // let roa = repository::create_random_roa(&conf).0;
+    // println!("{:?}", base64::encode(roa.clone()));
+
+    // object_generation::get_key_id(roa);
+    // return;
+
     util::clear_caches();
 
     let res = Args::parse();

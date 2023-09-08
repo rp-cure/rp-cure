@@ -469,7 +469,7 @@ pub fn start_processes(
     let dont_move = false;
 
     let proc_amount = folders.len();
-    let proc_amount = 1;
+    let proc_amount = 3;
 
     let max_file_amount = 500;
 
@@ -803,7 +803,7 @@ pub fn create_example_crls(cert_keys: &Vec<KeyAndSigner>, amount: u32, conf: &Re
     ret
 }
 
-pub fn create_example_roas(cert_keys: &Vec<KeyAndSigner>, amount: u32, conf: &RepoConfig) -> Vec<(Bytes, String)> {
+pub fn create_example_roas(amount: u32) -> Vec<(Bytes, String)> {
     let mut ret = vec![];
     let conf = repository::create_default_config(consts::domain.to_string());
     let (priv_keys, pub_keys) = load_ee_ks(&conf, amount, true);
@@ -1259,10 +1259,11 @@ pub fn store_files_xml(files: &Vec<(String, Bytes)>, filename: &str) {
     fs::write(&filename, s).unwrap();
 }
 
-pub fn send_coverage(function_coverage: f64, line_coverage: f64, batch_id: u16) {
+pub fn send_coverage(function_coverage: f64, line_coverage: f64, function_hashes: HashSet<u64>, batch_id: u16) {
     let obj = CoverageObject {
         function_coverage,
         line_coverage,
+        function_hashes,
         batch_id,
     };
 
@@ -1468,13 +1469,13 @@ pub fn start_fuzzing(folders: Vec<String>, conf: FuzzConfig, factory: &mut Objec
         let crashes = run_rp_processes("info");
 
         let start = Instant::now();
-        let (fcov, lcov) = coverage_interface::get_coverage("routinator");
+        let (fcov, lcov, fhashes) = coverage_interface::get_coverage("routinator");
         let elapsed = start.elapsed();
         // println!("Time elapsed in coverage: {:?}", elapsed);
 
         fs::remove_file("routinator.profdata");
 
-        send_coverage(fcov, lcov, obj.id);
+        send_coverage(fcov, lcov, fhashes, obj.id);
 
         let r = &random_file_name();
         let (identical, vrps_name) = store_vrps(r);

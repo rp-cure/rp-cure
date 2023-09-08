@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fs,
     io::{Read, Write},
     os::unix::net::{UnixListener, UnixStream},
@@ -126,6 +126,7 @@ pub struct SerializableObject {
 pub struct ObjectInfo {
     pub manipulated_fields: Vec<String>,
     pub filename: String,
+    pub ca_index: u16,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
@@ -196,6 +197,7 @@ pub struct ReponseObject {
 pub struct CoverageObject {
     pub function_coverage: f64,
     pub line_coverage: f64,
+    pub function_hashes: HashSet<u64>,
     pub batch_id: u16,
 }
 
@@ -265,8 +267,6 @@ impl GenerationFactory {
                 *tmp -= 1;
             }
         }
-
-        println!("Sending data");
         loop {
             if !self.sent_objects.contains_key(&self.cur_socket) {
                 break;
