@@ -385,7 +385,10 @@ impl SignedAttrs {
     ///
     /// This attribute is defined in section 11.1. of RFC 5652. The attribute
     /// value is a SET of exactly one OBJECT IDENTIFIER.
-    fn take_content_type<S: decode::Source>(cons: &mut decode::Constructed<S>, content_type: &mut Option<Oid<Bytes>>) -> Result<(), S::Err> {
+    fn take_content_type<S: decode::Source>(
+        cons: &mut decode::Constructed<S>,
+        content_type: &mut Option<Oid<Bytes>>,
+    ) -> Result<(), S::Err> {
         update_once(content_type, || cons.take_set(|cons| Oid::take_from(cons)))
     }
 
@@ -400,7 +403,10 @@ impl SignedAttrs {
         update_once(signing_time, || cons.take_set(Time::take_from))
     }
 
-    fn take_bin_signing_time<S: decode::Source>(cons: &mut decode::Constructed<S>, bin_signing_time: &mut Option<u64>) -> Result<(), S::Err> {
+    fn take_bin_signing_time<S: decode::Source>(
+        cons: &mut decode::Constructed<S>,
+        bin_signing_time: &mut Option<u64>,
+    ) -> Result<(), S::Err> {
         update_once(bin_signing_time, || cons.take_set(|cons| cons.take_u64()))
     }
 
@@ -733,6 +739,7 @@ impl SignedObjectBuilder {
         let message_digest = self.digest_algorithm.digest(&content).into();
         let signed_attrs = SignedAttrs::new(&content_type, &message_digest, self.signing_time, self.binary_signing_time);
 
+        println!("signed_attrs: {:?}", signed_attrs.clone().encode_verify());
         // Sign signed attributes with a one-off key.
         //let (signature, key_info) = signer.sign_one_off(SignatureAlgorithm::default(), &signed_attrs.encode_verify())?;
 

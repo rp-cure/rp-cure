@@ -11,6 +11,7 @@ base64 = "0.20.0"
 clap = {version="4.3.19", features=["derive"]}
 #rpki		= {version = "0.14.1", features=["repository", "softkeys", "xml", "rrdp", "serde"]} 
 rpki = {path="./rpki-rs-custom/rpki-rs/", features=["repository", "softkeys", "xml", "rrdp", "serde"]}
+asn1_generator = {path="../rpki-object-generator/"}
 openssl = "0.10.55"
 rand = "0.8.5"
 serde = { version = "1.0.*", default-features = false }

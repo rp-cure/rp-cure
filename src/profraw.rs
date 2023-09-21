@@ -190,10 +190,12 @@ pub fn read(filename: &str) -> (f64, f64, HashSet<u64>) {
     for r in 0..function_records.len() {
         let counter_amount = function_records[r].func_hash;
         if counter_amount > 0 {
-            let function_execution_count = counters[current_counter_index];
-            current_counter_index += counter_amount as usize;
-            if function_execution_count > 0 {
-                executed_fs.insert(r as u64);
+            for i in 0..counter_amount {
+                let function_execution_count = counters[current_counter_index];
+                current_counter_index += 1 as usize;
+                if function_execution_count > 0 {
+                    executed_fs.insert(r as u64);
+                }
             }
         }
     }

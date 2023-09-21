@@ -28,6 +28,7 @@ mod consts;
 mod coverage_interface;
 mod fuzzing;
 mod generation_interface;
+mod mutator;
 mod object_generation;
 mod process_util;
 mod profraw;
@@ -231,25 +232,6 @@ fn fuzz(mut conf: FuzzConfig, folders: Option<Vec<String>>) {
         util::start_fuzzing(folders, conf, &mut factory);
     } else {
         if conf.typ == OpType::NOTI {
-            if conf.dont_move {
-                println!("Warning: Don't move is set to TRUE. The same files will be used continuously.")
-            }
-
-            let create_fun = fuzzing::notification::create_notifications;
-            let repo_fn = &util::clear_repo;
-            util::start_fuzzing_xml(
-                &conf.typ.to_string(),
-                vec![conf.uri.to_string().clone()],
-                4000,
-                repo_fn,
-                &create_fun,
-                conf.dont_move,
-            );
-            return;
-        } else if conf.typ == OpType::SNAP {
-            if conf.dont_move {
-                println!("Warning: Don't move is set to TRUE. The same files will be used continuously.")
-            }
             let create_fun = fuzzing::snapshot::create_snapshots;
             let repo_fn = &util::clear_repo;
             util::start_fuzzing_xml(
@@ -316,6 +298,17 @@ fn main() {
 
     // object_generation::get_key_id(roa);
     // return;
+
+    util::clear_caches();
+
+    let mut conf = repository::create_default_config("my.server.com".to_string());
+    repository::initialize_repo(&mut conf, false, None);
+    let re = &util::create_example_roas(1)[0];
+    // println!("Roa {:?}", base64::encode(re.0.clone()));
+    // repository::add_roa_str("10.0.0.0/24 => AS1776", false, &conf);
+
+    generation_interface::test_generation();
+    return;
 
     util::clear_caches();
 

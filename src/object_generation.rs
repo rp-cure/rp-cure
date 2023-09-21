@@ -7,9 +7,7 @@ use std::{
 };
 
 use bytes::Bytes;
-use hex::ToHex;
 use rand::{prelude::Distribution, seq::SliceRandom, Rng};
-use rpki::rrdp::Hash;
 
 use crate::{
     asn1p,
@@ -22,7 +20,7 @@ use rand::distributions::WeightedIndex;
 
 fn generate_number() -> u8 {
     let mut rng = rand::thread_rng();
-    let weights = [25, 50, 17, 8]; // 0 appears with a weight of 50, 1 with a weight of 25, etc.
+    let weights = [25, 50, 17, 8, 4, 2, 1]; // 0 appears with a weight of 50, 1 with a weight of 25, etc.
     let dist = WeightedIndex::new(&weights).unwrap();
 
     dist.sample(&mut rng) as u8
@@ -103,15 +101,15 @@ fn mutate(data: &mut Vec<u8>) {
     }
 }
 
-fn mutate_batch(inputs: &Vec<(Vec<u8>, ObjectInfo)>) -> Vec<Vec<u8>> {
+fn mutate_batch(inputs: &Vec<(Vec<u8>, ObjectInfo)>, size: u32) -> Vec<Vec<u8>> {
     let mut outputs = Vec::new();
     let num_inputs = inputs.len();
-    let num_mutations_per_input = (1000 - num_inputs) / num_inputs;
+    let num_mutations_per_input = size / num_inputs as u32;
 
     // Keep parent generation
-    for obj in inputs {
-        outputs.push(obj.0.clone());
-    }
+    // for obj in inputs {
+    //     outputs.push(obj.0.clone());
+    // }
 
     for input_i in inputs {
         let input = &input_i.0;
@@ -175,15 +173,20 @@ impl SucessTracker {
 fn split_batch(contents: &Vec<(Vec<u8>, ObjectInfo)>, deflation_rate: usize) -> Vec<GenerationBatch> {
     let mut new_batches = vec![];
 
+    let mut rng = rand::thread_rng();
     for i in 0..deflation_rate {
-        let new_batch = contents[contents.len() / deflation_rate * i..contents.len() / deflation_rate * (i + 1)].to_vec();
-        let new_id = random_id();
+        let v = rng.gen_range(0..10);
 
-        let new_batch = GenerationBatch {
-            typ: "roa".to_string(),
-            contents: new_batch,
-            id: new_id,
-        };
+        let new_batch = contents[contents.len() / deflation_rate * i..contents.len() / deflation_rate * (i + 1)].to_vec();
+
+        // Either decrease size or inflate to max
+        let length;
+        if v > 5 {
+            length = new_batch.len();
+        } else {
+            length = 1000;
+        }
+        let new_batch = mutation(&new_batch, length.try_into().unwrap());
 
         new_batches.push(new_batch);
     }
@@ -277,6 +280,12 @@ impl SortedList {
 
         self.elements.insert(index, element);
 
+        // println!("Start QUEUE");
+        // for e in self.elements.iter() {
+        //     println!("{}", e.0);
+        // }
+        // println!("\n END QUEUE \n\n");
+
         // TODO check what length makes sense here
         if self.elements.len() > 1000 {
             self.elements.remove(self.elements.len() - 1);
@@ -334,8 +343,8 @@ impl FuzzingQueue {
     pub fn age_elements(&mut self) {}
 }
 
-pub fn mutation(batch: Vec<(Vec<u8>, ObjectInfo)>) -> GenerationBatch {
-    let v = mutate_batch(&batch);
+pub fn mutation(batch: &Vec<(Vec<u8>, ObjectInfo)>, size: u32) -> GenerationBatch {
+    let v = mutate_batch(batch, size);
     let mut objects = vec![];
 
     for o in v {
@@ -382,16 +391,19 @@ pub fn start_generation() {
 
     let am: u16 = 4;
 
-    let roas = create_example_roas(am.into());
+    let roas = create_example_roas((am * 20).into());
 
     for i in 0..am {
-        let info = ObjectInfo {
-            manipulated_fields: vec![],
-            filename: "tmp.txt".to_string(),
-            ca_index: i,
-        };
-        let v = roas[i as usize].0.to_vec();
-        let batch = (1.0, vec![(v.clone(), info)]);
+        let mut vals = vec![];
+        for j in 0..20 {
+            let info = ObjectInfo {
+                manipulated_fields: vec![],
+                filename: "tmp.txt".to_string(),
+                ca_index: i,
+            };
+            vals.push((roas[(i * 20 + j) as usize].0.to_vec(), info));
+        }
+        let batch = (1.0, vals);
 
         fuzzing_queue.insert(batch);
 
@@ -416,6 +428,7 @@ pub fn start_generation() {
     }
 
     let mut know_functions: HashSet<u64> = HashSet::new();
+    let mut first_run = true;
 
     loop {
         fuzzing_queue.age();
@@ -428,7 +441,7 @@ pub fn start_generation() {
 
             let batches;
             if batch.len() / deflation_rate < min_generation_size {
-                batches = vec![mutation(batch)];
+                batches = vec![mutation(&batch, max_size)];
             } else {
                 batches = split_batch(&batch, deflation_rate);
             }
@@ -456,21 +469,28 @@ pub fn start_generation() {
             println!("Coverage {}", re.line_coverage);
 
             // let index = re.batch_id;
+            if first_run {
+                first_run = false;
+                know_functions.extend(re.function_hashes.clone());
+            }
 
             let mut set = HashSet::new();
             for v in re.function_hashes.difference(&know_functions) {
                 set.insert(*v);
             }
 
+            // if set.len() > 0 {
+            //     println!("Found {} new Functions", set.len());
+            // }
+
             let batch = map.get(&re.batch_id).unwrap();
 
             // Score Calculation is still up for debate
-            let score = max(set.len() * 10 * max_size / batch.contents.len(), 1);
+            let score = set.len() as f32 * 10.0 * ((max_size as usize / batch.contents.len()) as f32).sqrt() + 1.0;
 
-            // If this is a smallest batch, we can add found functions to known functions
-            if batch.contents.len() / deflation_rate < min_generation_size {
-                know_functions.extend(set);
-            }
+            know_functions.extend(set);
+
+            println!("Known Functions: {}", know_functions.len());
 
             fuzzing_queue.insert((score as f32, batch.contents.clone()));
 

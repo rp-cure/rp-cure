@@ -818,6 +818,9 @@ pub fn create_example_roas(amount: u32) -> Vec<(Bytes, String)> {
 
         let roa_string = "10.0.0.0/24 => ".to_string() + &i.to_string();
 
+        // TODO remove this
+        let roa_string = "10.0.0.0/24 => 1776".to_string(); // + &i.to_string();
+
         let (roa_builder, _) = repository::process_roa_string(&roa_string).unwrap();
         let roa_bytes = roa_builder.to_attestation().encode_ref().to_captured(Mode::Der).into_bytes();
         let fname = ca_name.clone() + &i.to_string() + ".roa";
@@ -996,6 +999,9 @@ pub fn get_rp_vrps() -> (String, bool, Vec<String>, Vec<Vec<RoaContents>>) {
     }
 
     let v = rout_con.len() == octo_con.len() && fort_con.len() == client_con.len() && fort_con.len() == rout_con.len();
+
+    println!("Routinator Length: {}", rout_con.len());
+
     if !v {
         // println!("Routinator");
         // for v in &rout_con{
@@ -1460,7 +1466,7 @@ pub fn start_fuzzing(folders: Vec<String>, conf: FuzzConfig, factory: &mut Objec
 
         let obj = new_obj.unwrap();
 
-        println!("Batch size is {}", obj.contents.len());
+        // println!("Batch size is {}", obj.contents.len());
 
         clear_repo(&conf.repo_conf, 0);
 
