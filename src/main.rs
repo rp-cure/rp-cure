@@ -27,6 +27,7 @@ mod asn1p;
 mod consts;
 mod coverage_interface;
 mod fuzzing;
+mod fuzzing_repo;
 mod generation_interface;
 mod mutator;
 mod object_generation;
@@ -291,7 +292,40 @@ struct Args {
     raw: Option<bool>,
 }
 
+fn key_id(data: Vec<u8>) -> usize {
+    let mut total: usize = 0;
+    let mut i = 0;
+    while i < data.len() - 1 {
+        total += ((data[i] as usize) << 8) + data[i + 1] as usize;
+        i += 2;
+    }
+    total += (total >> 16) & 0xFFFF;
+    return total & 0xFFFF;
+}
+
+pub fn test_keys() {
+    let mut key_id_distr = HashMap::new();
+    for i in 0..10000 {
+        let file_uri = "data/keys/".to_string() + &i.to_string() + ".der";
+        let bits = repository::read_cert_key(&file_uri).get_pub_key();
+        let byt = bits.bits();
+        let mut base_data = vec![1, 0, 3, 8];
+        base_data.extend(byt.to_vec());
+
+        let kid = key_id(base_data);
+        if key_id_distr.contains_key(&kid) {
+            key_id_distr.insert(kid, key_id_distr.get(&kid).unwrap() + 1);
+        } else {
+            key_id_distr.insert(kid, 1);
+        }
+    }
+    println!("{:?}", key_id_distr);
+}
+
 fn main() {
+    // test_keys();
+    // return;
+
     // let conf = repository::create_default_config("my.server.com".to_string());
     // let roa = repository::create_random_roa(&conf).0;
     // println!("{:?}", base64::encode(roa.clone()));
@@ -303,11 +337,13 @@ fn main() {
 
     let mut conf = repository::create_default_config("my.server.com".to_string());
     repository::initialize_repo(&mut conf, false, None);
-    let re = &util::create_example_roas(1)[0];
-    // println!("Roa {:?}", base64::encode(re.0.clone()));
+    // let re = &util::create_example_roas(1)[0];
+    // return;
+    // // println!("Roa {:?}", base64::encode(re.0.clone()));
     // repository::add_roa_str("10.0.0.0/24 => AS1776", false, &conf);
 
-    generation_interface::test_generation();
+    // generation_interface::test_generation();
+    generation_interface::full_test();
     return;
 
     util::clear_caches();

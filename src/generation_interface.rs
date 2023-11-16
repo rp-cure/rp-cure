@@ -1,17 +1,21 @@
-use std::fs;
+use std::{fs, time::Instant};
 
 use bcder::{encode::Values, Mode};
 use bytes::Bytes;
 use chrono::Utc;
+use rpki::repository::crypto::digest::sha1_digest;
+use sha1::Sha1;
 
 use crate::{
     consts,
+    fuzzing_repo::{self, FuzzingObject, RepoInfo},
     publication_point::repository::{self, KeyAndSigner},
     util,
 };
-use hex::FromHex;
-
 use asn1_generator;
+use asn1_generator::parser::Tree;
+use hex::FromHex;
+use sha1::Digest;
 
 pub fn create_normal_repo() {
     let mut con = repository::create_default_config(consts::domain.to_string());
@@ -74,126 +78,128 @@ pub enum OpType {
     GBR,
 }
 
-pub fn test_generation() {
-    util::create_example_roas(1);
+pub fn create_asn1(tag: u8, data: Vec<u8>) {}
+
+pub fn create_hash_list() {
+    let name = "FB203CF59A2BAF2435CFD6E73A2F76786D797A28.crl";
+
+    let value = b"0x124353";
+
+    // asn1::parse_single(data);
+
+    // asn1::Tlv::from(value)
+}
+
+// Adapt all fields of an object
+pub fn initial_fix() {}
+
+pub fn full_test() {
     let conf = repository::create_default_config(consts::domain.to_string());
+
+    let parent_key_roa = load_key().0;
+    let subject_key_roa = load_key().1;
+    let subject_key_mft = repository::read_cert_key("data/keys/0.der");
+    let subject_key_crl = repository::read_cert_key("data/keys/0.der");
+
+    let subject_key_cert = repository::read_cert_key("data/keys/newca.der");
+
+    let root_key = repository::read_cert_key("data/keys/ta.der");
+
+    let key_uri = "data/keys/newca.der";
+
+    let parent_key_mft = repository::read_cert_key(&key_uri);
+    let parent_key_crl = repository::read_cert_key(&key_uri);
+
+    let roa = fs::read("./example.roa").unwrap();
+    let mft = fs::read("./example.mft").unwrap();
+    let crl = fs::read("./example.crl").unwrap();
+    let cert = fs::read("./example.cer").unwrap();
+
+    let roa_tree = asn1_generator::connector::new_tree(roa, "roa");
+    let mft_tree = asn1_generator::connector::new_tree(mft, "mft");
+    let crl_tree = asn1_generator::connector::new_tree(crl, "crl");
+    let cert_tree = asn1_generator::connector::new_tree(cert, "cert");
+
+    let mut froa = FuzzingObject::new(
+        OpType::ROA,
+        parent_key_roa,
+        subject_key_roa,
+        roa_tree,
+        "example.roa".to_string(),
+        conf.clone(),
+    );
+
+    let filename_mft = repository::get_filename_crl_mft(&key_uri);
+
+    let crl_uri = filename_mft.clone() + ".crl";
+    let mft_uri = filename_mft.clone() + ".mft";
+
+    let mut fmft = FuzzingObject::new(OpType::MFT, parent_key_mft, subject_key_mft, mft_tree, mft_uri, conf.clone());
+
+    let mut fcrl = FuzzingObject::new(OpType::CRL, parent_key_crl, subject_key_crl, crl_tree, crl_uri, conf.clone());
+
+    let mut fcer = FuzzingObject::new(
+        OpType::CERTCA,
+        root_key,
+        subject_key_cert,
+        cert_tree,
+        "example.cer".to_string(),
+        conf.clone(),
+    );
+
+    let mut repo = fuzzing_repo::FuzzingRepository {
+        payloads: vec![froa],
+        manifest: fmft,
+        crl: fcrl,
+        conf,
+        certificate: fcer,
+        repo_info: RepoInfo::default(),
+    };
+
+    repo.fix_all_objects(true);
+    repo.mutate_objects(1);
+    repo.write_to_disc();
+    repo.update_parent();
+    util::run_rp_processes("info");
+    let (vrps, _, _, _) = util::get_rp_vrps();
+    println!("{}", vrps);
+}
+
+pub fn test_generation() {
+    let conf = repository::create_default_config(consts::domain.to_string());
+
+    // let file_content = fs::read("./example.mft").unwrap();
+    // let mut tree = asn1_generator::connector::new_tree(file_content, "mft");
+
+    // let mut fo = FuzzingObject::new(OpType::MFT, load_key().0, load_key().1, tree, "example.mft".to_string(), conf);
 
     let file_content = fs::read("./example.roa").unwrap();
-    let mut tree = asn1_generator::connector::new_tree(file_content);
+    let mut tree = asn1_generator::connector::new_tree(file_content, "roa");
 
-    // Fix encapContent Hash
-    let data = tree.get_data_by_label("encapsulatedContent").unwrap();
-    println!("Da {:?}", data);
+    let mut fo = FuzzingObject::new(OpType::ROA, load_key().0, load_key().1, tree, "example.roa".to_string(), conf);
 
-    let hash = sha256::digest(&*data);
-    let hash = <[u8; 32]>::from_hex(hash).unwrap().to_vec();
-    println!("Hash {:?}", hash[0..20].to_vec());
+    fo.fix_fields(true, None);
+    fo.fix_fields(true, None);
 
-    tree.set_data_by_label("messageDigest", hash, true);
-
-    // Fix subjectKeyIdentifier and authorityKeyIdentifier
-    let (parent_key, child_key) = load_key();
-    let sub_key_id = <[u8; 20]>::from_hex(child_key.get_pub_key().key_identifier().to_string())
-        .unwrap()
-        .to_vec();
-
-    let par_key_id = <[u8; 20]>::from_hex(parent_key.get_pub_key().key_identifier().to_string())
-        .unwrap()
-        .to_vec();
-
-    tree.set_data_by_label("subjectKeyIdentifier", sub_key_id.clone(), true);
-    tree.set_data_by_label("authorityKeyIdentifier", par_key_id.clone(), true);
-
-    // Fix issuer name and subject name
-    tree.set_data_by_label(
-        "issuerName",
-        parent_key.get_pub_key().key_identifier().to_string().as_bytes().to_vec(),
-        true,
-    );
-    tree.set_data_by_label(
-        "subjectName",
-        child_key.get_pub_key().key_identifier().to_string().as_bytes().to_vec(),
-        true,
-    );
-
-    // Fix SID in signedAttributes
-    tree.set_data_by_label("signerIdentifier", sub_key_id, true);
-
-    let mut new_bits: Vec<u8> = vec![0];
-    new_bits.extend(child_key.get_pub_key().bits().to_vec());
-    tree.set_data_by_label("subjectPublicKey", new_bits, true);
-
-    // Fix time
-    let now = Utc::now();
-    let twenty_four_hours_ago = now - chrono::Duration::hours(24);
-    let utc_time_string = twenty_four_hours_ago.format("%y%m%d%H%M%SZ").to_string();
-    let not_before: Vec<u8> = utc_time_string.as_bytes().to_vec();
-
-    let in_three_days = now + chrono::Duration::hours(72);
-    let utc_time_string = in_three_days.format("%y%m%d%H%M%SZ").to_string();
-    let not_after: Vec<u8> = utc_time_string.as_bytes().to_vec();
-
-    tree.set_data_by_label("notBefore", not_before, true);
-    tree.set_data_by_label("notAfter", not_after, true);
-
-    // Fix CRL Location
-    let storage_base_uri = "rsync://".to_string() + &conf.DOMAIN + "/" + &conf.BASE_REPO_DIR + &conf.CA_NAME + "/";
-    let cert_key_uri = "data/keys/".to_string() + &conf.CA_NAME + ".der";
-    let filename = repository::get_filename_crl_mft(&cert_key_uri);
-    let crl_uri = storage_base_uri.clone() + &filename + ".crl";
-
-    tree.set_data_by_label("crlDistributionPoint", crl_uri.as_bytes().to_vec(), true);
-
-    tree.fix_sizes(true);
-
-    // Fix signature on signedAttributes
-    let data = tree.get_data_by_label("signerSignedAttributesField").unwrap();
-    let data = data[2..].to_vec(); // Remove first two bytes because we need to change them
-
-    let len = data.len();
-    let mut res = Vec::with_capacity(len + 4);
-    res.push(0x31); // SET
-    if len < 128 {
-        res.push(len as u8)
-    } else if len < 0x10000 {
-        res.push(2);
-        res.push((len >> 8) as u8);
-        res.push(len as u8);
-    } else {
-        res.push(3);
-        res.push((len >> 16) as u8);
-        res.push((len >> 8) as u8);
-        res.push(len as u8);
+    let before = Instant::now();
+    for i in 0..1 {
+        // fo.mutate();
     }
-    res.extend_from_slice(data.as_ref());
+    let end = before.elapsed();
+    println!("Elapsed time {:?}", end);
 
-    let sig = child_key.sign(&res).to_vec();
-    tree.set_data_by_label("signerSignature", sig, true);
+    // println!("Mutations {:?}", fo.tree.mutations);
 
-    // Fix signature on certificate
-    let data = tree.encode_node(&tree.get_node_by_label("certificate").unwrap());
-    let sig = parent_key.sign(&data).to_vec();
-    let mut sig_bits: Vec<u8> = vec![0];
-    sig_bits.extend(sig);
+    // println!("{}", base64::encode(fo.tree.encode()));
+    let roa_content = Bytes::from(fo.tree.encode());
 
-    tree.set_data_by_label("certificateSignature", sig_bits, true);
+    let roa_string = "10.0.0.0/24 => 1776";
 
-    // Make sure all ASN.1 sizes are correct
-    tree.fix_sizes(true);
+    repository::write_object_to_disc(&roa_content, "roa", roa_string, "newca", &fo.conf);
 
-    // Write Object to Disc
-    let conf = repository::create_default_config(consts::domain.to_string());
+    let base_uri = repository::base_repo_uri(&fo.conf.CA_NAME, &fo.conf);
 
-    println!("Data {}", base64::encode(tree.encode_tree()));
-    let roa_content = Bytes::from(tree.encode_tree());
-
-    let roa_string = "10.0.0.0/24 => 0";
-
-    repository::write_object_to_disc(&roa_content, "roa", roa_string, "newca", &conf);
-
-    let base_uri = repository::base_repo_uri(&conf.CA_NAME, &conf);
-
-    repository::after_roa_creation(roa_string, base_uri, "newca", roa_content, false, &conf);
+    repository::after_roa_creation(roa_string, base_uri, "newca", roa_content, false, &fo.conf);
 
     // run rps
     util::run_rp_processes("info");
@@ -202,6 +208,8 @@ pub fn test_generation() {
 
     println!("{}", vrps);
 }
+
+pub fn test_repository() {}
 
 pub fn load_key() -> (KeyAndSigner, KeyAndSigner) {
     let key_uri = "data/keys/newca.der";

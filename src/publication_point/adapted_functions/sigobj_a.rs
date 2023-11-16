@@ -739,7 +739,6 @@ impl SignedObjectBuilder {
         let message_digest = self.digest_algorithm.digest(&content).into();
         let signed_attrs = SignedAttrs::new(&content_type, &message_digest, self.signing_time, self.binary_signing_time);
 
-        println!("signed_attrs: {:?}", signed_attrs.clone().encode_verify());
         // Sign signed attributes with a one-off key.
         //let (signature, key_info) = signer.sign_one_off(SignatureAlgorithm::default(), &signed_attrs.encode_verify())?;
 

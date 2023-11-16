@@ -9,6 +9,7 @@ use std::{
 use bytes::Bytes;
 use rand::{prelude::Distribution, seq::SliceRandom, Rng};
 
+use crate::mutator;
 use crate::{
     asn1p,
     fuzzing::processing,
@@ -368,14 +369,9 @@ pub fn mutation(batch: &Vec<(Vec<u8>, ObjectInfo)>, size: u32) -> GenerationBatc
 pub fn start_generation() {
     let mut factory = GenerationFactory::new(100, 3);
     let mut coverage_factory = CoverageFactory::new();
-
-    // let mut queue = VecDeque::new();
     let mut map = HashMap::new();
-    // let mut parent_map = HashMap::new();
 
     let mut fuzzing_queue = SortedList::new();
-
-    // let mut success = HashMap::new();
 
     // Minimum size of a generation
     let min_generation_size = 10;
@@ -389,42 +385,25 @@ pub fn start_generation() {
 
     // At the beginning, fille the queue with objects
 
+    // Amount of batches
     let am: u16 = 4;
+    let objects_in_batch = 20;
 
     let roas = create_example_roas((am * 20).into());
 
     for i in 0..am {
         let mut vals = vec![];
-        for j in 0..20 {
+        for j in 0..objects_in_batch {
             let info = ObjectInfo {
                 manipulated_fields: vec![],
                 filename: "tmp.txt".to_string(),
                 ca_index: i,
             };
-            vals.push((roas[(i * 20 + j) as usize].0.to_vec(), info));
+            vals.push((roas[(i * objects_in_batch + j) as usize].0.to_vec(), info));
         }
         let batch = (1.0, vals);
 
         fuzzing_queue.insert(batch);
-
-        // let v = mutate_batch(&batch);
-
-        // for o in v {
-        //     let info = ObjectInfo {
-        //         manipulated_fields: vec![],
-        //         filename: "tmp.txt".to_string(),
-        //         ca_index: i,
-        //     };
-        //     objects.push((o, info));
-        // }
-
-        // let genbatch = GenerationBatch {
-        //     typ: "roa".to_string(),
-        //     contents: objects,
-        //     id: random_id(),
-        // };
-
-        // queue.push_back(genbatch);
     }
 
     let mut know_functions: HashSet<u64> = HashSet::new();
@@ -434,47 +413,44 @@ pub fn start_generation() {
         fuzzing_queue.age();
 
         // If nothing is in queue -> Target is still processing all requests
-        if fuzzing_queue.elements.is_empty() {
+        while fuzzing_queue.elements.is_empty() {
             thread::sleep(Duration::from_millis(50))
+        }
+        let batch = fuzzing_queue.get_element();
+
+        let batches;
+        if batch.len() / deflation_rate < min_generation_size {
+            batches = vec![mutation(&batch, max_size)];
         } else {
-            let batch = fuzzing_queue.get_element();
-
-            let batches;
-            if batch.len() / deflation_rate < min_generation_size {
-                batches = vec![mutation(&batch, max_size)];
-            } else {
-                batches = split_batch(&batch, deflation_rate);
-            }
-
-            for batch in batches {
-                map.insert(batch.id, batch.clone());
-
-                let serialized = serde_json::to_string(&batch).unwrap();
-
-                let mut responses = factory.send_batch(serialized.clone());
-
-                while responses.is_none() {
-                    thread::sleep(Duration::from_millis(1000));
-                    responses = factory.send_batch(serialized.clone());
-                    println!("Sleeping while queue is full");
-                }
-            }
+            batches = split_batch(&batch, deflation_rate);
         }
 
-        // let cloned_map = map.clone();
+        for batch in batches {
+            map.insert(batch.id, batch.clone());
+
+            let serialized = serde_json::to_string(&batch).unwrap();
+
+            let mut responses = factory.send_batch(serialized.clone());
+
+            while responses.is_none() {
+                thread::sleep(Duration::from_millis(1000));
+                // If responses is none, the data could not been sent, so we need to re-try
+                responses = factory.send_batch(serialized.clone());
+                println!("Sleeping while queue is full");
+            }
+        }
 
         let responses = coverage_factory.get_coverages();
 
         for re in responses {
             println!("Coverage {}", re.line_coverage);
-
-            // let index = re.batch_id;
             if first_run {
                 first_run = false;
                 know_functions.extend(re.function_hashes.clone());
             }
 
             let mut set = HashSet::new();
+            // Check how many new functions were found
             for v in re.function_hashes.difference(&know_functions) {
                 set.insert(*v);
             }
@@ -493,77 +469,6 @@ pub fn start_generation() {
             println!("Known Functions: {}", know_functions.len());
 
             fuzzing_queue.insert((score as f32, batch.contents.clone()));
-
-            // if ! .contains_key(&index) {
-            //     let b = map.get(&re.batch_id).unwrap();
-            //     let new_batches = split_batch(&b.contents, deflation_rate);
-            //     let mut new_ids = vec![];
-
-            //     for batch in new_batches {
-            //         new_ids.push(batch.id);
-
-            //         parent_map.insert(batch.id, re.batch_id);
-
-            //         queue.push_back(batch);
-            //     }
-
-            //     success.insert(re.batch_id, SucessTracker::new(re.batch_id, new_ids));
-            // } else {
-            //     let parent_index = parent_map.get(&index).unwrap();
-            //     let success_object: &mut SucessTracker = success.get_mut(parent_index).unwrap();
-
-            //     println!("Length set {}, hashes length {}", set.len(), know_functions.len());
-
-            //     let finished = success_object.add_coverage(index, set);
-
-            //     if finished {
-            //         let (best_id, new_functions) = success_object.best_coverage();
-
-            //         know_functions.extend(new_functions);
-
-            //         let best_batch = cloned_map.get(&best_id).unwrap();
-            //         if best_batch.contents.len() > min_generation_size {
-            //             // Deflate by half
-
-            //             let new_batches = split_batch(&best_batch.contents, deflation_rate);
-            //             let mut new_ids = vec![];
-
-            //             for batch in new_batches {
-            //                 new_ids.push(batch.id);
-
-            //                 parent_map.insert(batch.id, re.batch_id);
-
-            //                 queue.push_back(batch);
-            //             }
-
-            //             success.insert(re.batch_id, SucessTracker::new(re.batch_id, new_ids));
-            //         } else {
-            //             // Inflate back to original size by generating mutations of object
-            //             let mut objects = vec![];
-            //             println!("inflating");
-            //             let mutated = mutate_batch(&best_batch.contents);
-            //             println!("Mutation finished");
-            //             for o in mutated {
-            //                 let info = ObjectInfo {
-            //                     manipulated_fields: vec![],
-            //                     filename: "tmp.txt".to_string(),
-            //                     ca_index: best_batch.contents[0].1.ca_index,
-            //                 };
-            //                 objects.push((o, info));
-            //             }
-
-            //             let batch = GenerationBatch {
-            //                 typ: "roa".to_string(),
-            //                 contents: objects,
-            //                 id: random_id(),
-            //             };
-
-            //             map.insert(batch.id, batch.clone());
-
-            //             queue.push_back(batch);
-            //         }
-            //     }
-            // }
         }
     }
 }

@@ -134,7 +134,7 @@ pub fn initialize_repo(conf: &mut RepoConfig, new_cas: bool, session_id: Option<
     create_default_ta(new_cas, conf);
 
     // TODO RE-ENABLE
-    create_default_ca(new_cas, conf);
+    // create_default_ca(new_cas, conf);
     //create_multiple_cas(new_cas, conf);
 
     // if new_cas {

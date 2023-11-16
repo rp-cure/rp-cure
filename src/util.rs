@@ -1000,8 +1000,6 @@ pub fn get_rp_vrps() -> (String, bool, Vec<String>, Vec<Vec<RoaContents>>) {
 
     let v = rout_con.len() == octo_con.len() && fort_con.len() == client_con.len() && fort_con.len() == rout_con.len();
 
-    println!("Routinator Length: {}", rout_con.len());
-
     if !v {
         // println!("Routinator");
         // for v in &rout_con{
