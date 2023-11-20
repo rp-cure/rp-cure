@@ -157,7 +157,8 @@ pub fn full_test() {
     };
 
     repo.fix_all_objects(true);
-    repo.mutate_objects(1);
+
+    // repo.mutate_objects(1);
     repo.write_to_disc();
     repo.update_parent();
     util::run_rp_processes("info");

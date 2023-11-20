@@ -5,7 +5,7 @@ use crate::{
     publication_point::repository::{self, KeyAndSigner, RepoConfig},
 };
 use asn1::Tlv;
-use asn1_generator::asn1_elements::WriteASN1;
+use asn1_generator::asn1_elements::{self, ReadASN1, WriteASN1};
 use asn1_generator::{
     asn1_elements::{Sequence, TLV},
     parser::Tree,
@@ -79,10 +79,24 @@ impl FuzzingRepository {
         self.crl.fix_fields(all_fields, None);
         values.push(self.crl.asn1_name_and_hash());
 
-        let hashlist = Sequence::new(values).encode();
-        self.manifest.fix_fields(all_fields, Some(hashlist));
+        let hashlist = Sequence::new(values);
+        self.manifest.fix_fields(all_fields, Some(hashlist.encode_content()));
+
         self.certificate.fix_fields(all_fields, None);
-        self.crl.fix_fields(all_fields, None);
+        // self.crl.fix_fields(all_fields, None);
+    }
+
+    pub fn create_hash_list(&self) -> Vec<u8> {
+        let payloads = &self.payloads;
+
+        let mut values = vec![];
+        for obj in payloads {
+            values.push(obj.asn1_name_and_hash());
+        }
+        values.push(self.crl.asn1_name_and_hash());
+
+        let hashlist = Sequence::new(values).encode();
+        hashlist
     }
 
     pub fn write_to_disc(&self) {
@@ -109,11 +123,15 @@ impl FuzzingRepository {
 
     pub fn update_parent(&self) {
         let parent_name = self.conf.CA_TREE.get(&self.conf.CA_NAME).unwrap();
+        let grandparent_name = match self.conf.CA_TREE.get(parent_name) {
+            Some(v) => v,
+            None => "root",
+        };
 
         let (session_id, serial_number) = repository::get_current_session_notification(&self.conf);
         let serial_number = serial_number + 1;
 
-        repository::make_manifest(&self.conf.CA_NAME, parent_name, &self.conf);
+        repository::make_manifest(&parent_name, grandparent_name, &self.conf);
 
         repository::finalize_snap_notification(session_id, serial_number, vec![], vec![], &self.conf);
     }
@@ -130,6 +148,7 @@ impl FuzzingRepository {
                 println!("Mutating MFT");
 
                 self.manifest.mutate();
+                self.manifest.fix_fields(false, Some(self.create_hash_list()))
             } else if ind == 2 {
                 println!("Mutating CRL");
 
@@ -280,9 +299,38 @@ impl FuzzingObject {
         }
     }
 
+    pub fn fix_mft_validity(&mut self) {
+        let now = Utc::now();
+        let twenty_four_hours_ago = now - chrono::Duration::hours(24);
+        // Use GeneralizedTime format: YYYYMMDDHHMMSSZ
+        let generalized_time_string = twenty_four_hours_ago.format("%Y%m%d%H%M%SZ").to_string();
+        let not_before: Vec<u8> = generalized_time_string.as_bytes().to_vec();
+
+        let in_three_days = now + chrono::Duration::hours(72);
+        // Use GeneralizedTime format: YYYYMMDDHHMMSSZ
+        let generalized_time_string = in_three_days.format("%Y%m%d%H%M%SZ").to_string();
+        let not_after: Vec<u8> = generalized_time_string.as_bytes().to_vec();
+
+        if !self.tree.node_manipulated_by_label("thisUpdate") {
+            self.tree.set_data_by_label("thisUpdate", not_before, true);
+        }
+
+        if !self.tree.node_manipulated_by_label("nextUpdate") {
+            self.tree.set_data_by_label("nextUpdate", not_after, true);
+        }
+    }
+
     pub fn fix_crl_location(&mut self) {
-        let storage_base_uri = "rsync://".to_string() + &self.conf.DOMAIN + "/" + &self.conf.BASE_REPO_DIR + &self.conf.CA_NAME + "/";
-        let cert_key_uri = "data/keys/".to_string() + &self.conf.CA_NAME + ".der";
+        let storage_base_uri;
+        let cert_key_uri;
+        if self.op_type == OpType::CERTCA || self.op_type == OpType::CERTEE {
+            storage_base_uri =
+                "rsync://".to_string() + &self.conf.DOMAIN + "/" + &self.conf.BASE_REPO_DIR + &self.conf.CA_TREE[&self.conf.CA_NAME] + "/";
+            cert_key_uri = self.conf.BASE_KEY_DIR_l.clone() + &self.conf.CA_TREE[&self.conf.CA_NAME] + ".der";
+        } else {
+            storage_base_uri = "rsync://".to_string() + &self.conf.DOMAIN + "/" + &self.conf.BASE_REPO_DIR + &self.conf.CA_NAME + "/";
+            cert_key_uri = self.conf.BASE_KEY_DIR_l.clone() + &self.conf.CA_NAME + ".der";
+        }
         let filename = repository::get_filename_crl_mft(&cert_key_uri);
         let crl_uri = storage_base_uri.clone() + &filename + ".crl";
 
@@ -329,12 +377,14 @@ impl FuzzingObject {
     }
 
     pub fn fix_notification_uri(&mut self) {
-        let storage_uri = "rsync://".to_string() + &self.conf.DOMAIN + "/" + &self.conf.BASE_RRDP_DIR + "notification.xml";
+        let storage_uri = "https://".to_string() + &self.conf.DOMAIN + "/" + &self.conf.BASE_RRDP_DIR + "notification.xml";
 
         if !self.tree.node_manipulated_by_label("rpkiNotifyURI") {
             self.tree.set_data_by_label("rpkiNotifyURI", storage_uri.as_bytes().to_vec(), true);
         }
     }
+
+    pub fn fix_singed_attributes(&mut self) {}
 
     pub fn fix_signer_signature(&mut self, all_fields: bool) {
         if self.tree.get_node_by_label("signerSignedAttributesField").is_none()
@@ -387,6 +437,12 @@ impl FuzzingObject {
         // self.tree.fix_sizes(false);
         if self.op_type == OpType::MFT && hashlist.is_some() {
             self.fix_hash_list(hashlist.unwrap());
+            self.tree.fix_sizes(true);
+        }
+
+        if self.op_type == OpType::MFT && all_fields {
+            self.fix_mft_validity();
+            self.tree.fix_sizes(true);
         }
 
         if self.op_type == OpType::ROA || self.op_type == OpType::MFT || self.op_type == OpType::ASPA || self.op_type == OpType::GBR {
@@ -398,6 +454,7 @@ impl FuzzingObject {
             self.fix_aki();
             self.fix_validty();
 
+            if self.op_type == OpType::MFT {}
             if self.op_type != OpType::CRL {
                 self.fix_ski();
                 self.fix_names();
@@ -418,6 +475,7 @@ impl FuzzingObject {
         self.tree.fix_sizes(true);
 
         self.fix_signer_signature(all_fields);
+
         self.fix_certificate_signature();
 
         self.tree.remove_taint();
@@ -428,13 +486,14 @@ impl FuzzingObject {
             println!("ERROR: Fixing Hash List only necessary in Manifest");
         }
 
-        self.tree.set_data_by_label("mftHashList", hashlist, true);
+        self.tree.set_data_by_label("manifestHashes", hashlist, true);
     }
 
     pub fn get_hash(&self) -> Vec<u8> {
         let data = self.tree.encode();
         let hash = sha256::digest(&*data);
         let hash = <[u8; 32]>::from_hex(hash).unwrap().to_vec();
+
         hash
     }
 
