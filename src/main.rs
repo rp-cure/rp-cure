@@ -27,10 +27,10 @@ mod asn1p;
 mod consts;
 mod coverage_interface;
 mod fuzzing;
+mod fuzzing_loop;
 mod fuzzing_repo;
 mod generation_interface;
 mod mutator;
-mod object_generation;
 mod process_util;
 mod profraw;
 mod publication_point;
@@ -112,7 +112,6 @@ pub fn store_example_roa() {
     let cws = util::get_cwd() + "/";
 
     let roas = util::create_example_roas(10000);
-
     fs::create_dir_all(cws.clone() + "roas_4/").unwrap();
 
     for i in roas {
@@ -203,7 +202,7 @@ fn sign(conf: FuzzConfig) {
 }
 
 fn generate(conf: FuzzConfig) {
-    object_generation::start_generation();
+    fuzzing_loop::start_generation();
 }
 
 fn fuzz(mut conf: FuzzConfig, folders: Option<Vec<String>>) {
@@ -343,7 +342,8 @@ fn main() {
     // repository::add_roa_str("10.0.0.0/24 => AS1776", false, &conf);
 
     // generation_interface::test_generation();
-    generation_interface::full_test();
+    // generation_interface::full_test();
+    generation_interface::pp_test();
     return;
 
     util::clear_caches();

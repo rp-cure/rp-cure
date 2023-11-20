@@ -1731,6 +1731,7 @@ fn local_to_uri(uri: String, conf: &RepoConfig) -> String {
 }
 
 // Structure used to store a key with its signer
+#[derive(Clone)]
 pub struct KeyAndSigner {
     pub signer: OpenSslSigner,
     pub keyid: Option<KeyId>,

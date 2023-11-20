@@ -9,14 +9,15 @@ use std::{
 use bytes::Bytes;
 use rand::{prelude::Distribution, seq::SliceRandom, Rng};
 
-use crate::mutator;
 use crate::{
     asn1p,
     fuzzing::processing,
+    fuzzing_repo::FuzzingPP,
     process_util::{self, CoverageFactory, GenerationBatch, GenerationFactory, ObjectInfo},
     publication_point::repository,
     util::create_example_roas,
 };
+use crate::{fuzzing_repo, mutator};
 use rand::distributions::WeightedIndex;
 
 fn generate_number() -> u8 {
@@ -262,7 +263,7 @@ pub fn get_key_id(data: Bytes) {
 // }
 
 struct SortedList {
-    elements: Vec<(f32, Vec<(Vec<u8>, ObjectInfo)>)>,
+    elements: Vec<FuzzingBatch>,
 }
 
 impl SortedList {
@@ -270,10 +271,10 @@ impl SortedList {
         SortedList { elements: vec![] }
     }
 
-    pub fn insert(&mut self, element: (f32, Vec<(Vec<u8>, ObjectInfo)>)) {
+    pub fn insert(&mut self, element: FuzzingBatch) {
         let mut index = 0;
         for e in self.elements.iter() {
-            if e.0 <= element.0 {
+            if e.batch_score <= element.batch_score {
                 break;
             }
             index += 1;
@@ -295,30 +296,30 @@ impl SortedList {
 
     pub fn age(&mut self) {
         for e in self.elements.iter_mut() {
-            let mut tmp = e.0;
+            let mut tmp = e.batch_score;
             tmp -= 1.0;
             if tmp < 1.0 {
                 tmp = 1.0;
             }
-            e.0 = tmp;
+            e.batch_score = tmp;
         }
     }
 
     // Select an element with its probability
-    pub fn get_element(&mut self) -> Vec<(Vec<u8>, ObjectInfo)> {
+    pub fn get_element(&mut self) -> FuzzingBatch {
         let mut rng = rand::thread_rng();
 
-        let total_sum: f32 = self.elements.iter().map(|(prob, _)| prob).sum();
+        let total_sum: f32 = self.elements.iter().map(|el| el.batch_score).sum();
 
         let mut random_value = rng.gen_range(0.0..total_sum);
 
-        for (prob, element) in self.elements.iter() {
-            if random_value < *prob {
-                return element.clone();
+        for el in self.elements.iter() {
+            if random_value < el.batch_score {
+                return el.clone();
             }
-            random_value -= prob;
+            random_value -= el.batch_score;
         }
-        return self.elements.last().unwrap().1.clone();
+        return self.elements.last().unwrap().clone();
     }
 }
 
@@ -333,11 +334,11 @@ impl FuzzingQueue {
         }
     }
 
-    pub fn insert(&mut self, element: (f32, Vec<(Vec<u8>, ObjectInfo)>)) {
+    pub fn insert(&mut self, element: FuzzingBatch) {
         self.elements.insert(element);
     }
 
-    pub fn pop(&mut self) -> Option<(f32, Vec<(Vec<u8>, ObjectInfo)>)> {
+    pub fn pop(&mut self) -> Option<FuzzingBatch> {
         self.elements.elements.pop()
     }
 
@@ -366,6 +367,25 @@ pub fn mutation(batch: &Vec<(Vec<u8>, ObjectInfo)>, size: u32) -> GenerationBatc
     genbatch
 }
 
+#[derive(Clone)]
+pub struct FuzzingBatch {
+    batch_id: u64,
+    batch_pp: FuzzingPP,
+    batch_score: f32,
+}
+
+impl FuzzingBatch {
+    pub fn serialize(&self) -> String {
+        serde_json::to_string(&self.batch_pp.serialize()).unwrap()
+    }
+}
+
+pub fn generate_random_u64() -> u64 {
+    let mut rng = rand::thread_rng();
+    let id = rng.gen_range(0..u64::MAX);
+    id
+}
+
 pub fn start_generation() {
     let mut factory = GenerationFactory::new(100, 3);
     let mut coverage_factory = CoverageFactory::new();
@@ -391,20 +411,28 @@ pub fn start_generation() {
 
     let roas = create_example_roas((am * 20).into());
 
-    for i in 0..am {
-        let mut vals = vec![];
-        for j in 0..objects_in_batch {
-            let info = ObjectInfo {
-                manipulated_fields: vec![],
-                filename: "tmp.txt".to_string(),
-                ca_index: i,
-            };
-            vals.push((roas[(i * objects_in_batch + j) as usize].0.to_vec(), info));
-        }
-        let batch = (1.0, vals);
+    let pp = fuzzing_repo::construct_PP();
 
-        fuzzing_queue.insert(batch);
-    }
+    // for i in 0..am {
+    //     let mut vals = vec![];
+    //     for j in 0..objects_in_batch {
+    //         let info = ObjectInfo {
+    //             manipulated_fields: vec![],
+    //             filename: "tmp.txt".to_string(),
+    //             ca_index: i,
+    //         };
+    //         vals.push((roas[(i * objects_in_batch + j) as usize].0.to_vec(), info));
+    //     }
+    //     let batch = (1.0, vals);
+
+    let batch = FuzzingBatch {
+        batch_id: generate_random_u64(),
+        batch_pp: pp,
+        batch_score: 1.0,
+    };
+
+    fuzzing_queue.insert(batch);
+    // }
 
     let mut know_functions: HashSet<u64> = HashSet::new();
     let mut first_run = true;
@@ -418,26 +446,17 @@ pub fn start_generation() {
         }
         let batch = fuzzing_queue.get_element();
 
-        let batches;
-        if batch.len() / deflation_rate < min_generation_size {
-            batches = vec![mutation(&batch, max_size)];
-        } else {
-            batches = split_batch(&batch, deflation_rate);
-        }
+        map.insert(batch.batch_id, batch);
 
-        for batch in batches {
-            map.insert(batch.id, batch.clone());
+        let serialized = batch.serialize();
 
-            let serialized = serde_json::to_string(&batch).unwrap();
+        let mut responses = factory.send_batch(serialized.clone());
 
-            let mut responses = factory.send_batch(serialized.clone());
-
-            while responses.is_none() {
-                thread::sleep(Duration::from_millis(1000));
-                // If responses is none, the data could not been sent, so we need to re-try
-                responses = factory.send_batch(serialized.clone());
-                println!("Sleeping while queue is full");
-            }
+        while responses.is_none() {
+            thread::sleep(Duration::from_millis(1000));
+            // If responses is none, the data could not been sent, so we need to re-try
+            responses = factory.send_batch(serialized.clone());
+            println!("Sleeping while queue is full");
         }
 
         let responses = coverage_factory.get_coverages();

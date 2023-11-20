@@ -17,11 +17,11 @@ use crate::{
     vrps_analysis::extend_signed_attr,
     FuzzConfig,
 };
-use crate::{generation_interface::OpType, publication_point::repository::create_current_snapshot};
 use crate::{
-    object_generation,
+    fuzzing_loop,
     publication_point::repository::{create_notification, KeyAndSigner},
 };
+use crate::{generation_interface::OpType, publication_point::repository::create_current_snapshot};
 use crate::{process_util::GenerationBatch, publication_point::repository::get_current_session_notification};
 use crate::{process_util::ObjectInfo, publication_point::repository::write_notification_file};
 use bcder::{
@@ -219,7 +219,7 @@ pub fn srun(mut conf: FuzzConfig) {
     let stream = UnixListener::bind(&socket).unwrap();
     stream.set_nonblocking(true).unwrap();
 
-    object_generation::send_single_object(&conf.uri);
+    fuzzing_loop::send_single_object(&conf.uri);
 
     create_objects(true, conf, roas, crls, mfts, &stream);
 

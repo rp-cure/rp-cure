@@ -65,7 +65,7 @@ pub fn initialize_fuzzer() -> bool {
     return err;
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Clone, serde::Serialize, serde::Deserialize)]
 pub enum OpType {
     MFT,
     ROA,
@@ -91,7 +91,29 @@ pub fn create_hash_list() {
 }
 
 // Adapt all fields of an object
-pub fn initial_fix() {}
+
+pub fn pp_test() {
+    let mut pp = fuzzing_repo::construct_PP();
+    let new_pps = pp.split(10);
+    println!("Amount new pps {}", new_pps.len());
+    for mut pp in new_pps {
+        println!(
+            "Before {}, {}, {}",
+            pp.sets.len(),
+            pp.sets[0].repos.len(),
+            pp.sets[0].repos[0].payloads.len()
+        );
+        pp.inflate(10);
+        println!(
+            "After {}, {}, {}",
+            pp.sets.len(),
+            pp.sets[0].repos.len(),
+            pp.sets[0].repos[0].payloads.len()
+        );
+    }
+
+    pp.inflate(10);
+}
 
 pub fn full_test() {
     let conf = repository::create_default_config(consts::domain.to_string());
@@ -120,7 +142,7 @@ pub fn full_test() {
     let crl_tree = asn1_generator::connector::new_tree(crl, "crl");
     let cert_tree = asn1_generator::connector::new_tree(cert, "cert");
 
-    let mut froa = FuzzingObject::new(
+    let froa = FuzzingObject::new(
         OpType::ROA,
         parent_key_roa,
         subject_key_roa,
@@ -134,11 +156,11 @@ pub fn full_test() {
     let crl_uri = filename_mft.clone() + ".crl";
     let mft_uri = filename_mft.clone() + ".mft";
 
-    let mut fmft = FuzzingObject::new(OpType::MFT, parent_key_mft, subject_key_mft, mft_tree, mft_uri, conf.clone());
+    let fmft = FuzzingObject::new(OpType::MFT, parent_key_mft, subject_key_mft, mft_tree, mft_uri, conf.clone());
 
-    let mut fcrl = FuzzingObject::new(OpType::CRL, parent_key_crl, subject_key_crl, crl_tree, crl_uri, conf.clone());
+    let fcrl = FuzzingObject::new(OpType::CRL, parent_key_crl, subject_key_crl, crl_tree, crl_uri, conf.clone());
 
-    let mut fcer = FuzzingObject::new(
+    let fcer = FuzzingObject::new(
         OpType::CERTCA,
         root_key,
         subject_key_cert,
@@ -158,7 +180,10 @@ pub fn full_test() {
 
     repo.fix_all_objects(true);
 
-    // repo.mutate_objects(1);
+    repo.mutate_objects_rnd(1);
+
+    repo.fix_all_objects(false);
+
     repo.write_to_disc();
     repo.update_parent();
     util::run_rp_processes("info");
