@@ -2,6 +2,7 @@ use std::{
     cmp::max,
     collections::{HashMap, HashSet, VecDeque},
     fs,
+    path::Path,
     thread::{self, current},
     time::Duration,
 };
@@ -131,9 +132,9 @@ fn mutate_batch(inputs: &Vec<(Vec<u8>, ObjectInfo)>, size: u32) -> Vec<Vec<u8>> 
     outputs
 }
 
-pub fn random_id() -> u16 {
+pub fn random_id() -> u64 {
     let mut rng = rand::thread_rng();
-    let id = rng.gen_range(0..u16::MAX);
+    let id = rng.gen_range(0..u64::MAX);
     id
 }
 
@@ -376,8 +377,18 @@ pub struct FuzzingBatch {
 
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct SerializableBatch {
-    batch_id: u64,
-    batch_content: Vec<(String, Vec<u8>)>,
+    pub batch_id: u64,
+    pub batch_content: Vec<(String, Vec<u8>)>,
+}
+
+impl SerializableBatch {
+    pub fn write_to_disc(&self) {
+        for v in &self.batch_content {
+            // Ensure Directory exists
+            fs::create_dir_all(Path::new(&v.0).parent().unwrap());
+            fs::write(&v.0, &v.1);
+        }
+    }
 }
 
 impl FuzzingBatch {
@@ -397,40 +408,16 @@ pub fn generate_random_u64() -> u64 {
 }
 
 pub fn start_generation() {
-    let mut factory = GenerationFactory::new(100, 3);
+    // let mut factory = GenerationFactory::new(100, 3);
     let mut coverage_factory = CoverageFactory::new();
     let mut map = HashMap::new();
 
     let mut fuzzing_queue = SortedList::new();
 
-    // Minimum size of a generation
-    let min_generation_size = 10;
-
     // How many times to divide a generation
     let factor = 10;
-    // let mut best_coverage: f64 = 0.0;
-
-    // At the beginning, fille the queue with objects
-
-    // Amount of batches
-    let am: u16 = 4;
-    let objects_in_batch = 20;
-
-    let roas = create_example_roas((am * 20).into());
 
     let pp = fuzzing_repo::construct_PP();
-
-    // for i in 0..am {
-    //     let mut vals = vec![];
-    //     for j in 0..objects_in_batch {
-    //         let info = ObjectInfo {
-    //             manipulated_fields: vec![],
-    //             filename: "tmp.txt".to_string(),
-    //             ca_index: i,
-    //         };
-    //         vals.push((roas[(i * objects_in_batch + j) as usize].0.to_vec(), info));
-    //     }
-    //     let batch = (1.0, vals);
 
     let batch = FuzzingBatch {
         batch_id: generate_random_u64(),
@@ -439,7 +426,6 @@ pub fn start_generation() {
     };
 
     fuzzing_queue.insert(batch);
-    // }
 
     let mut know_functions: HashSet<u64> = HashSet::new();
     let mut first_run = true;
@@ -452,19 +438,18 @@ pub fn start_generation() {
             thread::sleep(Duration::from_millis(50))
         }
         let batch = fuzzing_queue.get_element();
+        let serialized = batch.serialize();
 
         map.insert(batch.batch_id, batch);
 
-        let serialized = batch.serialize();
+        process_util::send_new_pp(serialized.clone());
 
-        let mut responses = factory.send_batch(serialized.clone());
-
-        while responses.is_none() {
-            thread::sleep(Duration::from_millis(1000));
-            // If responses is none, the data could not been sent, so we need to re-try
-            responses = factory.send_batch(serialized.clone());
-            println!("Sleeping while queue is full");
-        }
+        // while responses.is_none() {
+        //     thread::sleep(Duration::from_millis(1000));
+        //     // If responses is none, the data could not been sent, so we need to re-try
+        //     responses = factory.send_batch(serialized.clone());
+        //     println!("Sleeping while queue is full");
+        // }
 
         let responses = coverage_factory.get_coverages();
 
@@ -480,10 +465,6 @@ pub fn start_generation() {
             for v in re.function_hashes.difference(&know_functions) {
                 set.insert(*v);
             }
-
-            // if set.len() > 0 {
-            //     println!("Found {} new Functions", set.len());
-            // }
 
             let batch = map.get(&re.batch_id).unwrap();
 
@@ -502,6 +483,10 @@ pub fn start_generation() {
                 fuzzing_queue.insert(new_batch);
             }
             println!("Known Functions: {}", know_functions.len());
+        }
+
+        while process_util::is_stopped() {
+            thread::sleep(Duration::from_millis(100));
         }
     }
 }

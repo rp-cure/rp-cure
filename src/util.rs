@@ -225,15 +225,16 @@ pub fn read_serialized_data_new(factory: &mut ObjectFactory) -> Vec<(String, Vec
     }
 
     let sobj = sobj.unwrap();
-    let filenames = sobj.filenames;
-    let data = sobj.contents;
+    // let filenames = sobj.filenames;
+    // let data = sobj.contents;
 
-    let mut ret = vec![];
+    // let mut ret = vec![];
 
-    for i in 0..filenames.len() {
-        ret.push((filenames[i].clone(), data[i].clone()));
-    }
-    ret
+    // for i in 0..filenames.len() {
+    //     ret.push((filenames[i].clone(), data[i].clone()));
+    // }
+    // ret
+    vec![]
 }
 
 pub fn read_serialized_data(filename: &str) -> Vec<(String, Vec<u8>)> {
@@ -1431,12 +1432,8 @@ pub fn get_crash_line_rt() -> io::Result<(String, usize)> {
     analyse_output(s)
 }
 
-pub fn start_fuzzing(folders: Vec<String>, conf: FuzzConfig, factory: &mut ObjectFactory) {
+pub fn start_fuzzing(conf: FuzzConfig, factory: &mut ObjectFactory) {
     let mut proc_amount = 0;
-
-    // let totalfiles = get_fileamount_folders(folders);
-
-    // println!("Info: Found a total of {} objects", totalfiles.to_string());
 
     println!("Info: Starting Fuzzer");
 
@@ -1468,7 +1465,9 @@ pub fn start_fuzzing(folders: Vec<String>, conf: FuzzConfig, factory: &mut Objec
 
         clear_repo(&conf.repo_conf, 0);
 
-        processing::handle_serialized_object(obj.clone(), &conf.repo_conf, &conf.typ.to_string());
+        obj.write_to_disc();
+
+        // processing::handle_serialized_object(obj.clone(), &conf.repo_conf, &conf.typ.to_string());
         // println!("Info: Running objects with length {}", obj.contents.len());
         let crashes = run_rp_processes("info");
 
@@ -1479,7 +1478,7 @@ pub fn start_fuzzing(folders: Vec<String>, conf: FuzzConfig, factory: &mut Objec
 
         fs::remove_file("routinator.profdata");
 
-        send_coverage(fcov, lcov, fhashes, obj.id);
+        send_coverage(fcov, lcov, fhashes, obj.batch_id);
 
         let r = &random_file_name();
         let (identical, vrps_name) = store_vrps(r);

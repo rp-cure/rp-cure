@@ -227,9 +227,9 @@ fn fuzz(mut conf: FuzzConfig, folders: Option<Vec<String>>) {
     if !rrdp_types.contains(&conf.typ.to_string().as_str()) {
         // conf.amount = 100;
 
-        let (_, folders) = util::start_processes("./bin/signer", &conf.typ.to_string(), folders, conf.amount, conf.raw);
+        // let (_, folders) = util::start_processes("./bin/signer", &conf.typ.to_string(), folders, conf.amount, conf.raw);
 
-        util::start_fuzzing(folders, conf, &mut factory);
+        util::start_fuzzing(conf, &mut factory);
     } else {
         if conf.typ == OpType::NOTI {
             let create_fun = fuzzing::snapshot::create_snapshots;
@@ -348,26 +348,36 @@ fn main() {
 
     util::clear_caches();
 
-    let res = Args::parse();
+    // let res = Args::parse();
 
     // Parse in the command line arguments
-    let type_name = res.typ;
-    let uri_r = &res.uri.unwrap_or("None".to_string());
-    let no_ee = res.only_content.unwrap_or(false);
+    // let type_name = res.typ;
+    // let uri_r = &res.uri.unwrap_or("None".to_string());
+    // let no_ee = res.only_content.unwrap_or(false);
+    // let typ = parse_type(&type_name);
+    // let subtype = res.subcommand.unwrap_or("none".to_string());
+    // let amount = res.amount.unwrap_or(1);
+    // let dont_move = false;
+    // let id = res.id.unwrap_or(0);
+    // let raw = res.raw.unwrap_or(false);
+
+    let type_name = "roa";
+    let uri_r = "None".to_string();
+    let no_ee = false;
     let typ = parse_type(&type_name);
-    let subtype = res.subcommand.unwrap_or("none".to_string());
-    let amount = res.amount.unwrap_or(1);
+    let subtype = "none".to_string();
+    let amount = 1;
     let dont_move = false;
-    let id = res.id.unwrap_or(0);
-    let raw = res.raw.unwrap_or(false);
+    let id = 0;
+    let raw = false;
 
     // Ensure uri is absolute
     let tmp;
     let uri: &str;
     if uri_r.starts_with("/") {
-        uri = uri_r;
+        uri = &uri_r;
     } else {
-        tmp = get_cwd() + "/" + uri_r;
+        tmp = get_cwd() + "/" + &uri_r;
         uri = &tmp;
     }
 
@@ -383,8 +393,9 @@ fn main() {
         raw,
     };
 
-    let c = res.command.as_str();
-    match c {
+    let command: String = env::args().collect::<Vec<String>>()[1];
+    // let c = res.command.as_str();
+    match command.as_str() {
         "run" => {
             run(fuzz_config);
             return;

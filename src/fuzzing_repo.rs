@@ -25,9 +25,9 @@ pub struct FuzzingPP {
 
 impl FuzzingPP {
     // Split all contained repositories by factor
-    pub fn split(&mut self, factor: usize) -> Vec<FuzzingPP> {
+    pub fn split(&self, factor: usize) -> Vec<FuzzingPP> {
         let mut new_pps = vec![];
-        for s in &mut self.sets {
+        for s in &self.sets {
             let new_con = s.split(factor);
             for n in new_con {
                 new_pps.push(FuzzingPP { sets: vec![n] });
@@ -49,6 +49,38 @@ impl FuzzingPP {
             output.extend(s.serialize());
         }
         output
+    }
+
+    // This creates the root repository that contains all children
+    pub fn create_root_repo(&self, conf: &RepoConfig) -> Vec<(String, Vec<u8>)> {
+        let mut values = vec![];
+        let rsa_key_uri_l = conf.BASE_KEY_DIR_l.clone() + "ta.der";
+        let crl_content = repository::create_default_crl_i(1, vec![], &rsa_key_uri_l, "ta", false, &conf).to_vec();
+
+        let mut file_uri = conf.BASE_REPO_DIR_l.clone() + "ta/";
+        file_uri.push_str(&repository::get_filename_crl_mft(&rsa_key_uri_l));
+        file_uri.push_str(".");
+
+        let parent_name = conf.BASE_REPO_DIR_l.clone() + "ta/";
+        for s in &self.sets {
+            for repo in &s.repos {
+                let uri = parent_name.clone() + &repo.certificate.name;
+                values.push((uri, repo.certificate.tree.encode()));
+            }
+        }
+
+        let mft_content = repository::make_manifest_objects("ta", "root", &conf, values).to_vec();
+        let crl_uri = file_uri.clone() + "crl";
+        let mft_uri = file_uri.clone() + "mft";
+
+        return vec![(mft_uri, mft_content), (crl_uri, crl_content)];
+    }
+
+    pub fn create_snapshot_notification(&self, conf: &RepoConfig) -> Vec<(String, Vec<u8>)> {
+        let mut objects = self.serialize();
+        objects.extend(self.create_root_repo(conf));
+        let (s, su, n, nu) = repository::create_snapshot_notification_objects(objects, conf);
+        vec![(s, su), (n, nu)]
     }
 }
 

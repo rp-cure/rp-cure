@@ -7,7 +7,7 @@ use std::{
 
 use reqwest::Response;
 
-use crate::coverage_interface;
+use crate::{coverage_interface, fuzzing_loop::SerializableBatch};
 
 fn accept_new_client(stream: &UnixListener) -> String {
     let op = stream.accept();
@@ -136,6 +136,38 @@ pub struct GenerationBatch {
     pub id: u64,
 }
 
+pub fn send_new_pp(data: String) {
+    send_new_data_s(data, "/tmp/fuzzing");
+}
+
+// Factory to send PPs from Generation to the Fuzzing Loop
+// pub struct FuzzingFactory {
+//     pub stream: UnixListener,
+//     pub limit: u16,
+// }
+
+// impl FuzzingFactory {
+//     pub fn new(limit: u16) -> FuzzingFactory {
+//         let socket = "/tmp/fuzzing".to_string();
+//         fs::remove_file(&socket).unwrap_or_default();
+
+//         let s = UnixListener::bind(&socket).unwrap();
+//         s.set_nonblocking(true).unwrap();
+
+//         FuzzingFactory { stream: s, limit }
+//     }
+
+//     pub fn get_object(&mut self) -> SerializableBatch {
+//         let new_objs = read_all_clients(&self.stream);
+//         let mut ret = vec![];
+//         for obj in new_objs {
+//             let res = serde_json::from_str::<CoverageObject>(&obj).unwrap();
+//             ret.push(res);
+//         }
+//         ret
+//     }
+// }
+
 pub struct ObjectFactory {
     pub objects: Vec<String>,
     pub stream: UnixListener,
@@ -166,7 +198,7 @@ impl ObjectFactory {
         }
     }
 
-    pub fn get_object(&mut self) -> Option<SerializableObject> {
+    pub fn get_object(&mut self) -> Option<SerializableBatch> {
         let new_objs = read_all_clients(&self.stream);
         self.objects.extend(new_objs);
 
@@ -178,7 +210,7 @@ impl ObjectFactory {
 
         if self.objects.len() > 0 {
             let o = self.objects.pop().unwrap();
-            let ret = serde_json::from_str::<SerializableObject>(&o).unwrap();
+            let ret = serde_json::from_str::<SerializableBatch>(&o).unwrap();
             return Some(ret);
         } else {
             return None;

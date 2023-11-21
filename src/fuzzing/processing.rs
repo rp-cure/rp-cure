@@ -53,7 +53,8 @@ pub fn serialize_data(data: &SerializableObject) -> String {
 
 pub fn read_serialized_data(factory: &mut ObjectFactory) -> Option<SerializableObject> {
     let sobj = factory.get_object();
-    return sobj;
+    return None;
+    //return sobj;
 }
 
 pub fn move_files_data(folder: String, filepaths: &Vec<String>, dont_move: bool) {

@@ -19,6 +19,7 @@ use openssl::dsa::Dsa;
 use openssl::hash::MessageDigest;
 use openssl::pkey::PKey;
 
+use crate::fuzzing_loop::random_id;
 use crate::publication_point::adapted_functions;
 use crate::publication_point::manual_tests::test_util::get_cwd;
 
@@ -925,6 +926,45 @@ pub fn after_roa_creation(
     }
 }
 
+// Create current snapshot with the objects
+pub fn create_current_snapshot_objects(objects: Vec<(String, Vec<u8>)>, conf: &RepoConfig) -> (Bytes, String, Uuid) {
+    let mut new_elements = vec![];
+    for obj in objects {
+        let base_path = "rsync://".to_string() + &conf.DOMAIN_l + "/" + obj.0.as_str();
+
+        let content = Bytes::from(obj.1);
+        let uri_l = normalize_uri(base_path);
+
+        let uri = local_to_uri(uri_l, &conf);
+
+        new_elements.push(PublishElement::new(uri::Rsync::from_string(uri).unwrap(), content));
+    }
+
+    let session_id = Uuid::new_v4();
+    let serial = 1;
+
+    let snapshot = Snapshot::new(session_id, serial, new_elements);
+    let mut snapshot_content = vec![];
+    snapshot.write_xml(&mut snapshot_content).unwrap();
+    let snapshot_bytes = Bytes::from(snapshot_content);
+    let mut filename = uri_from_session_and_serial_random(session_id, serial, conf);
+    filename.push_str("snapshot.xml");
+
+    (snapshot_bytes, filename, session_id)
+}
+
+pub fn create_snapshot_notification_objects(objects: Vec<(String, Vec<u8>)>, conf: &RepoConfig) -> (String, Vec<u8>, String, Vec<u8>) {
+    let (snapshot_bytes, snapshot_filename, session_id) = create_current_snapshot_objects(objects, conf);
+    let notification = create_notification(snapshot_bytes.clone(), vec![], &snapshot_filename, 5, session_id, 1, conf);
+
+    let mut vec = vec![];
+    notification.write_xml(&mut vec).unwrap();
+    // let notification_bytes = Bytes::from(vec);
+    let notification_filename = conf.BASE_RRDP_DIR_l.clone() + "notification.xml";
+
+    (snapshot_filename, snapshot_bytes.to_vec(), notification_filename, vec)
+}
+
 pub fn finalize_snap_notification(
     session_id: Uuid,
     serial_number: u64,
@@ -979,6 +1019,55 @@ pub fn filename_from_uri(uri: &uri::Rsync) -> String {
     let uri_vec: Vec<&str> = u2.collect();
     let file_name = uri_vec.last();
     file_name.unwrap().to_string()
+}
+
+pub fn make_manifest_objects(ca_name: &str, parent_name: &str, conf: &RepoConfig, objects: Vec<(String, Vec<u8>)>) -> Bytes {
+    let serial = random_serial();
+
+    // Keys are stored as ca_name.der
+    let cert_key_uri = conf.BASE_KEY_DIR_l.clone() + ca_name + ".der";
+
+    let ks = read_cert_key(&cert_key_uri);
+
+    let storage_base_uri = "rsync://".to_string() + &conf.DOMAIN + "/" + &conf.BASE_REPO_DIR + ca_name + "/";
+
+    let filename = get_filename_crl_mft(&cert_key_uri);
+
+    let mut mft_uri = storage_base_uri.clone();
+    mft_uri.push_str(&filename);
+
+    let mut crl_uri = mft_uri.clone();
+
+    mft_uri.push_str(".mft");
+    crl_uri.push_str(".crl");
+
+    let mft_rsync = uri::Rsync::from_str(&mft_uri).unwrap();
+    let crl_rsync = uri::Rsync::from_str(&crl_uri).unwrap();
+
+    let mut issuer_cer = "rsync://".to_string() + &conf.DOMAIN + "/";
+
+    // If the parent is root -> It has to be treated differently
+    if parent_name == "root" {
+        issuer_cer.push_str((conf.BASE_TAL_DIR.clone() + "root.cer").as_str());
+    } else {
+        issuer_cer.push_str((conf.BASE_REPO_DIR.clone() + parent_name + "/" + ca_name + ".cer").as_str());
+    }
+
+    let issuer_rsync = uri::Rsync::from_str(&issuer_cer).unwrap();
+    let mut vector = vec![];
+    for element in &objects {
+        let data = &element.1;
+        let algo = DigestAlgorithm::sha256();
+        let digest = algo.digest(&data);
+        vector.push(FileAndHash::new(element.0.clone(), digest));
+    }
+
+    let content = ManifestContent::new(serial, Time::now(), Time::tomorrow(), DigestAlgorithm::default(), vector.iter());
+
+    let file_content =
+        adapted_functions::overwritten_functions::encode_ref_manifest_content(content, crl_rsync, issuer_rsync, mft_rsync, ks, None);
+
+    file_content
 }
 
 pub fn make_manifest_i(ca_name: &str, parent_name: &str, conf: &RepoConfig, excluded: Option<Vec<String>>) -> Bytes {
