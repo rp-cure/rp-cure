@@ -1,4 +1,4 @@
-use std::{fs, time::Instant};
+use std::{fs, path::Path, time::Instant};
 
 use crate::{
     consts,
@@ -58,20 +58,25 @@ impl FuzzingPP {
         let crl_content = repository::create_default_crl_i(1, vec![], &rsa_key_uri_l, "ta", false, &conf).to_vec();
 
         let mut file_uri = conf.BASE_REPO_DIR_l.clone() + "ta/";
-        file_uri.push_str(&repository::get_filename_crl_mft(&rsa_key_uri_l));
-        file_uri.push_str(".");
 
-        let parent_name = conf.BASE_REPO_DIR_l.clone() + "ta/";
+        let name = repository::get_filename_crl_mft(&rsa_key_uri_l);
+        file_uri.push_str(&name);
+        file_uri.push_str(".");
+        let crl_uri = file_uri.clone() + "crl";
+        let mft_uri = file_uri.clone() + "mft";
+
         for s in &self.sets {
             for repo in &s.repos {
-                let uri = parent_name.clone() + &repo.certificate.name;
-                values.push((uri, repo.certificate.tree.encode()));
+                // let uri = parent_name.clone() + &repo.certificate.name;
+                // let raw = repo.certificate.tree.encode();
+                values.push((repo.certificate.name.clone(), repo.certificate.tree.encode()));
+                // for_mft.push((&repo.certificate.name, raw));
             }
         }
 
+        values.push((name + ".crl", crl_content.clone()));
+
         let mft_content = repository::make_manifest_objects("ta", "root", &conf, values).to_vec();
-        let crl_uri = file_uri.clone() + "crl";
-        let mft_uri = file_uri.clone() + "mft";
 
         return vec![(mft_uri, mft_content), (crl_uri, crl_content)];
     }
@@ -81,6 +86,14 @@ impl FuzzingPP {
         objects.extend(self.create_root_repo(conf));
         let (s, su, n, nu) = repository::create_snapshot_notification_objects(objects, conf);
         vec![(s, su), (n, nu)]
+    }
+
+    pub fn write_to_disc(&self, conf: &RepoConfig) {
+        let v = self.create_snapshot_notification(conf);
+        for (uri, content) in v {
+            fs::create_dir_all(Path::new(&uri).parent().unwrap());
+            fs::write(uri, content).unwrap();
+        }
     }
 }
 
@@ -102,7 +115,7 @@ pub fn load_example_roa(conf: &RepoConfig) -> FuzzingObject {
 }
 
 pub fn construct_PP() -> FuzzingPP {
-    let repo_set = construct_repositories(OpType::ROA, 10);
+    let repo_set = construct_repositories(OpType::ROA, 1);
     FuzzingPP { sets: vec![repo_set] }
 }
 
@@ -118,6 +131,8 @@ pub fn construct_repositories(typ: OpType, obj_amount: u16) -> RepoSet {
                 new_payloads.push(ex_roa.clone());
             }
             base_repository.payloads = new_payloads;
+            base_repository.fix_all_objects(true);
+
             let repo_set = RepoSet {
                 repos: vec![base_repository],
                 target_type: typ,
@@ -125,7 +140,9 @@ pub fn construct_repositories(typ: OpType, obj_amount: u16) -> RepoSet {
             return repo_set;
         }
     }
+
     // TODO
+    base_repository.fix_all_objects(true);
 
     return RepoSet {
         repos: vec![base_repository],
@@ -321,7 +338,6 @@ where
 
     let (main_chunk, remainder_chunk) = vec.split_at(part_size * num_parts);
 
-    println!("Vec size {}", vec.len());
     let mut chunks: Vec<Vec<T>> = main_chunk.chunks_exact(part_size).map(|chunk| chunk.to_vec()).collect();
 
     if remainder > 0 {

@@ -94,25 +94,30 @@ pub fn create_hash_list() {
 
 pub fn pp_test() {
     let mut pp = fuzzing_repo::construct_PP();
-    let new_pps = pp.split(10);
-    println!("Amount new pps {}", new_pps.len());
-    for mut pp in new_pps {
-        println!(
-            "Before {}, {}, {}",
-            pp.sets.len(),
-            pp.sets[0].repos.len(),
-            pp.sets[0].repos[0].payloads.len()
-        );
-        pp.inflate(10);
-        println!(
-            "After {}, {}, {}",
-            pp.sets.len(),
-            pp.sets[0].repos.len(),
-            pp.sets[0].repos[0].payloads.len()
-        );
-    }
+    let conf = repository::create_default_config(consts::domain.to_string());
+    pp.write_to_disc(&conf);
+    util::run_rp_processes("info");
+    let (vrps, _, _, _) = util::get_rp_vrps();
+    println!("{}", vrps);
+    // let new_pps = pp.split(10);
+    // println!("Amount new pps {}", new_pps.len());
+    // for mut pp in new_pps {
+    //     println!(
+    //         "Before {}, {}, {}",
+    //         pp.sets.len(),
+    //         pp.sets[0].repos.len(),
+    //         pp.sets[0].repos[0].payloads.len()
+    //     );
+    //     pp.inflate(10);
+    //     println!(
+    //         "After {}, {}, {}",
+    //         pp.sets.len(),
+    //         pp.sets[0].repos.len(),
+    //         pp.sets[0].repos[0].payloads.len()
+    //     );
+    // }
 
-    pp.inflate(10);
+    // pp.inflate(10);
 }
 
 pub fn full_test() {
