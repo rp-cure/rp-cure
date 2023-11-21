@@ -55,7 +55,7 @@ pub fn send_new_data_s(data: String, socket: &str) {
     drop(stream);
 }
 
-pub fn acknowledge(worker_id: u8, batch_id: u16) {
+pub fn acknowledge(worker_id: u8, batch_id: u64) {
     // let coverage_info = coverage_interface::get_coverage("routinator");
     let response = ReponseObject {
         worker_id: worker_id,
@@ -119,7 +119,7 @@ pub struct SerializableObject {
     pub crls: Option<Vec<Vec<u8>>>,
     pub roas: Option<Vec<Vec<u8>>>,
     pub roa_names: Option<Vec<String>>,
-    pub id: u16,
+    pub id: u64,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
@@ -133,7 +133,7 @@ pub struct ObjectInfo {
 pub struct GenerationBatch {
     pub contents: Vec<(Vec<u8>, ObjectInfo)>,
     pub typ: String,
-    pub id: u16,
+    pub id: u64,
 }
 
 pub struct ObjectFactory {
@@ -189,7 +189,7 @@ impl ObjectFactory {
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
 pub struct ReponseObject {
     pub worker_id: u8,
-    pub batch_id: u16,
+    pub batch_id: u64,
     pub coverage: f64,
 }
 
@@ -198,7 +198,7 @@ pub struct CoverageObject {
     pub function_coverage: f64,
     pub line_coverage: f64,
     pub function_hashes: HashSet<u64>,
-    pub batch_id: u16,
+    pub batch_id: u64,
 }
 
 pub struct CoverageFactory {

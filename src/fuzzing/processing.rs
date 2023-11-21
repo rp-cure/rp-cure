@@ -387,7 +387,7 @@ pub fn generate_from_files_plain_inner(
     roass: &Option<Vec<(Bytes, String)>>,
     crlss: &Option<Vec<(Bytes, String)>>,
     mftss: &Option<Vec<(Bytes, String)>>,
-    id: u16,
+    id: u64,
 ) -> SerializableObject {
     let mut filenames = vec![];
     let mut contents = vec![];

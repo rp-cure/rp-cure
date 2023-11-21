@@ -33,6 +33,7 @@ oid = "0.2.1"
 ring = "0.16.20"
 regex = "1"
 byteorder = "1.4"
+sha1 = "0.10.6"
 
 [features]
 roa_fuzz = []

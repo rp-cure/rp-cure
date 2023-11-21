@@ -1263,7 +1263,7 @@ pub fn store_files_xml(files: &Vec<(String, Bytes)>, filename: &str) {
     fs::write(&filename, s).unwrap();
 }
 
-pub fn send_coverage(function_coverage: f64, line_coverage: f64, function_hashes: HashSet<u64>, batch_id: u16) {
+pub fn send_coverage(function_coverage: f64, line_coverage: f64, function_hashes: HashSet<u64>, batch_id: u64) {
     let obj = CoverageObject {
         function_coverage,
         line_coverage,

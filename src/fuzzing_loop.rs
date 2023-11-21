@@ -374,9 +374,19 @@ pub struct FuzzingBatch {
     batch_score: f32,
 }
 
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+pub struct SerializableBatch {
+    batch_id: u64,
+    batch_content: Vec<(String, Vec<u8>)>,
+}
+
 impl FuzzingBatch {
     pub fn serialize(&self) -> String {
-        serde_json::to_string(&self.batch_pp.serialize()).unwrap()
+        let sb = SerializableBatch {
+            batch_id: self.batch_id,
+            batch_content: self.batch_pp.serialize(),
+        };
+        serde_json::to_string(&sb).unwrap()
     }
 }
 
@@ -397,10 +407,7 @@ pub fn start_generation() {
     let min_generation_size = 10;
 
     // How many times to divide a generation
-    let deflation_rate = 2;
-
-    let max_size = 1000;
-
+    let factor = 10;
     // let mut best_coverage: f64 = 0.0;
 
     // At the beginning, fille the queue with objects
@@ -481,13 +488,20 @@ pub fn start_generation() {
             let batch = map.get(&re.batch_id).unwrap();
 
             // Score Calculation is still up for debate
-            let score = set.len() as f32 * 10.0 * ((max_size as usize / batch.contents.len()) as f32).sqrt() + 1.0;
+            let score = set.len() as f32 + 1.0;
 
             know_functions.extend(set);
 
+            let new_pps = batch.batch_pp.split(factor);
+            for pp in new_pps {
+                let new_batch = FuzzingBatch {
+                    batch_id: generate_random_u64(),
+                    batch_pp: pp,
+                    batch_score: score,
+                };
+                fuzzing_queue.insert(new_batch);
+            }
             println!("Known Functions: {}", know_functions.len());
-
-            fuzzing_queue.insert((score as f32, batch.contents.clone()));
         }
     }
 }
