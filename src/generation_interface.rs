@@ -93,7 +93,8 @@ pub fn create_hash_list() {
 // Adapt all fields of an object
 
 pub fn pp_test() {
-    let mut pp = fuzzing_repo::construct_PP();
+    let conf = repository::create_default_config(consts::domain.to_string());
+    let mut pp = fuzzing_repo::construct_PP(conf);
     let conf = repository::create_default_config(consts::domain.to_string());
     pp.write_to_disc(&conf);
     util::run_rp_processes("info");
@@ -180,6 +181,7 @@ pub fn full_test() {
         crl: fcrl,
         conf,
         certificate: fcer,
+        child_repos: vec![],
         repo_info: RepoInfo::default(),
     };
 

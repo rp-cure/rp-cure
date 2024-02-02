@@ -1,9 +1,13 @@
-use std::{fs, path::Path, time::Instant};
+use std::{
+    fmt, fs, os::unix::net::UnixListener, path::Path, thread, time::{Duration, Instant}, vec
+};
 
 use crate::{
     consts,
     generation_interface::OpType,
+    process_util,
     publication_point::repository::{self, KeyAndSigner, RepoConfig},
+    FuzzConfig,
 };
 use asn1::Tlv;
 use asn1_generator::asn1_elements::{self, ReadASN1, WriteASN1};
@@ -14,13 +18,19 @@ use asn1_generator::{
 use chrono::Utc;
 use hex::FromHex;
 use rand::Rng;
+use serde::Deserializer;
+use serde::{
+    de::{self, Visitor},
+    Deserialize, Serialize, Serializer,
+};
 use sha1::Digest;
 use sha1::Sha1;
 
 // An entire PP
-#[derive(Clone)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct FuzzingPP {
     pub sets: Vec<RepoSet>,
+    pub conf: RepoConfig,
 }
 
 impl FuzzingPP {
@@ -30,7 +40,10 @@ impl FuzzingPP {
         for s in &self.sets {
             let new_con = s.split(factor);
             for n in new_con {
-                new_pps.push(FuzzingPP { sets: vec![n] });
+                new_pps.push(FuzzingPP {
+                    sets: vec![n],
+                    conf: self.conf.clone(),
+                });
             }
         }
         new_pps
@@ -49,6 +62,10 @@ impl FuzzingPP {
             output.extend(s.serialize());
         }
         output
+    }
+
+    pub fn repositorify(&self) -> Vec<(String, Vec<u8>)> {
+        return self.create_snapshot_notification(&self.conf);
     }
 
     // This creates the root repository that contains all children
@@ -84,6 +101,15 @@ impl FuzzingPP {
     pub fn create_snapshot_notification(&self, conf: &RepoConfig) -> Vec<(String, Vec<u8>)> {
         let mut objects = self.serialize();
         objects.extend(self.create_root_repo(conf));
+        let debug = conf.DEBUG;
+        let debug = true;
+        if debug {
+            for o in &objects{
+                // Create parent directory
+                fs::create_dir_all(Path::new(&o.0).parent().unwrap());
+                fs::write(&o.0, &o.1).unwrap();
+            }
+        }
         let (s, su, n, nu) = repository::create_snapshot_notification_objects(objects, conf);
         vec![(s, su), (n, nu)]
     }
@@ -92,18 +118,50 @@ impl FuzzingPP {
         let v = self.create_snapshot_notification(conf);
         for (uri, content) in v {
             fs::create_dir_all(Path::new(&uri).parent().unwrap());
+            println!("Writing to {}", uri);
             fs::write(uri, content).unwrap();
         }
     }
 }
 
-pub fn load_example_roa(conf: &RepoConfig) -> FuzzingObject {
-    let roa = fs::read("./example.roa").unwrap();
-    let roa_tree = asn1_generator::connector::new_tree(roa, "roa");
-    let parent_key_roa = load_key().0;
-    let subject_key_roa = load_key().1;
+pub fn signing_loop(conf: FuzzConfig, id: u32) {
+    let socket = "/tmp/gensock".to_string() + &id.to_string();
+    fs::remove_file(&socket).unwrap_or_default();
 
-    let mut froa = FuzzingObject::new(
+    println!("Binding to socket {}", &socket);
+    let stream = UnixListener::bind(&socket).unwrap();
+    stream.set_nonblocking(true).unwrap();
+
+    loop {
+        let mut f_option = process_util::get_batch(&stream);
+        while f_option.is_none() {
+            thread::sleep(Duration::from_millis(100));
+            f_option = process_util::get_batch(&stream);
+        }
+        let mut pp = f_option.unwrap();
+        pp.inflate(10);
+        let data = serde_json::to_string(&pp).unwrap();
+        println!("Sending reply now");
+        process_util::send_new_data_s(data, "/tmp/responses");
+    }
+}
+
+pub fn load_example_roa(conf: &RepoConfig, asid: u16) -> FuzzingObject {
+    let roa = fs::read("./example.roa").unwrap();
+    let mut roa_tree = asn1_generator::connector::new_tree(roa, "roa");
+
+    let d = if asid < 256{
+        vec![asid as u8]
+    }  
+    else{
+        vec![(asid >> 8) as u8, asid as u8]
+    };
+    roa_tree.set_data_by_label("AS-ID", d, false );
+    roa_tree.fix_sizes(false);
+    let parent_key_roa = load_key(conf).0;
+    let subject_key_roa = load_key(conf).1;
+
+    let froa = FuzzingObject::new(
         OpType::ROA,
         parent_key_roa,
         subject_key_roa,
@@ -114,24 +172,62 @@ pub fn load_example_roa(conf: &RepoConfig) -> FuzzingObject {
     froa
 }
 
-pub fn construct_PP() -> FuzzingPP {
+pub fn construct_PP(conf: RepoConfig) -> FuzzingPP {
     let repo_set = construct_repositories(OpType::ROA, 1);
-    FuzzingPP { sets: vec![repo_set] }
+    FuzzingPP {
+        sets: vec![repo_set],
+        conf,
+    }
+}
+
+pub fn construct_child_repository(parent: &mut FuzzingRepository, obj_amount: u16, ca_name: String) -> FuzzingRepository {
+    let mut conf = repository::create_default_config(consts::domain.to_string());
+
+    conf.CA_NAME = ca_name.clone();
+    conf.CA_TREE.insert(ca_name.clone(), parent.conf.CA_NAME.clone());
+    parent.conf.CA_TREE.insert(ca_name, parent.conf.CA_NAME.clone());
+    let mut base_repository = construct_base_repository(&conf);
+
+    let typ = parent.repo_info.target_object.clone();
+    if is_payload(&typ) {
+        if typ == OpType::ROA {
+            let mut new_payloads = vec![];
+            let ex_roa = load_example_roa(&conf, 2);
+            for _ in 0..obj_amount {
+                new_payloads.push(ex_roa.clone());
+            }
+            base_repository.payloads = new_payloads;
+            base_repository.fix_all_objects(true);
+            return base_repository;
+        }
+    }
+
+    // TODO
+    base_repository.fix_all_objects(true);
+
+    return base_repository;
 }
 
 pub fn construct_repositories(typ: OpType, obj_amount: u16) -> RepoSet {
     let conf = repository::create_default_config(consts::domain.to_string());
 
     let mut base_repository = construct_base_repository(&conf);
+
     if is_payload(&typ) {
         if typ == OpType::ROA {
             let mut new_payloads = vec![];
-            let ex_roa = load_example_roa(&conf);
+            let ex_roa = load_example_roa(&conf, 1);
             for _ in 0..obj_amount {
                 new_payloads.push(ex_roa.clone());
             }
             base_repository.payloads = new_payloads;
+
+            let mut child = construct_child_repository(&mut base_repository, obj_amount, "child".to_string());
+            child.fix_all_objects(true);
+
+            base_repository.child_repos.push(child);
             base_repository.fix_all_objects(true);
+
 
             let repo_set = RepoSet {
                 repos: vec![base_repository],
@@ -151,16 +247,23 @@ pub fn construct_repositories(typ: OpType, obj_amount: u16) -> RepoSet {
 }
 
 pub fn construct_base_repository(conf: &RepoConfig) -> FuzzingRepository {
-    let parent_key_roa = load_key().0;
-    let subject_key_roa = load_key().1;
-    let subject_key_mft = repository::read_cert_key("data/keys/0.der");
-    let subject_key_crl = repository::read_cert_key("data/keys/0.der");
+    let parent_key_roa = load_key(conf).0;
+    let subject_key_roa = load_key(conf).1;
 
-    let subject_key_cert = repository::read_cert_key("data/keys/newca.der");
+    let mft_key_dir = conf.BASE_KEY_DIR_l.clone() + &conf.CA_NAME + "_mft.der";
+    let crl_key_dir = conf.BASE_KEY_DIR_l.clone() + &conf.CA_NAME + "_crl.der";
+    let subject_key_mft = repository::read_cert_key(&mft_key_dir);
+    let subject_key_crl = repository::read_cert_key(&crl_key_dir);
 
-    let root_key = repository::read_cert_key("data/keys/ta.der");
+    let key_uri = "data/keys/".to_string() + &conf.CA_NAME + ".der";
 
-    let key_uri = "data/keys/newca.der";
+    let subject_key_cert = repository::read_cert_key(&key_uri);
+
+    let parent_name = conf.CA_TREE.get(&conf.CA_NAME).unwrap().to_string();
+    let parent_key = repository::read_cert_key(&(conf.BASE_KEY_DIR_l.clone() + &parent_name + ".der"));
+    // let root_key = repository::read_cert_key("data/keys/ta.der");
+
+    let key_uri = "data/keys/".to_string() + &conf.CA_NAME + ".der";
 
     let parent_key_mft = repository::read_cert_key(&key_uri);
     let parent_key_crl = repository::read_cert_key(&key_uri);
@@ -195,10 +298,10 @@ pub fn construct_base_repository(conf: &RepoConfig) -> FuzzingRepository {
 
     let fcer = FuzzingObject::new(
         OpType::CERTCA,
-        root_key,
+        parent_key,
         subject_key_cert,
         cert_tree,
-        "example.cer".to_string(),
+        conf.CA_NAME.clone() + &".cer".to_string(),
         conf.clone(),
     );
 
@@ -208,6 +311,7 @@ pub fn construct_base_repository(conf: &RepoConfig) -> FuzzingRepository {
         crl: fcrl,
         conf: conf.clone(),
         certificate: fcer,
+        child_repos: vec![], // TODO
         repo_info: RepoInfo::default(),
     };
 
@@ -221,17 +325,20 @@ pub fn construct_base_repository(conf: &RepoConfig) -> FuzzingRepository {
     // repo.update_parent();
 }
 
-pub fn load_key() -> (KeyAndSigner, KeyAndSigner) {
+pub fn load_key(conf: &RepoConfig) -> (KeyAndSigner, KeyAndSigner) {
     let key_uri = "data/keys/newca.der";
-
+    let key_uri = conf.BASE_KEY_DIR_l.clone() + &conf.CA_NAME + ".der";
     let ks = repository::read_cert_key(&key_uri);
-    let key_uri2 = "fuzzing_keys/0_roa";
+    // Random number between 1 and 1000000
+    let number = rand::thread_rng().gen_range(1..1000);
+
+    let key_uri2 = "fuzzing_keys/".to_string() + &number.to_string() + "_roa";
     let ks2 = repository::read_cert_key(&key_uri2);
 
     (ks, ks2)
 }
 
-#[derive(Clone)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct RepoInfo {
     pub amount_objects: u16,
     pub ca_index: u16,
@@ -261,7 +368,7 @@ pub fn is_payload(t: &OpType) -> bool {
 }
 
 // All FuzzingRepositories that fuzz the same object type
-#[derive(Clone)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct RepoSet {
     pub repos: Vec<FuzzingRepository>,
     pub target_type: OpType,
@@ -280,6 +387,7 @@ impl RepoSet {
                     repo.crl.clone(),
                     repo.conf.clone(),
                     repo.certificate.clone(),
+                    vec![], // TODO
                     repo.repo_info.clone(),
                 );
                 let new_repo_set = RepoSet {
@@ -347,13 +455,14 @@ where
     chunks
 }
 
-#[derive(Clone)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct FuzzingRepository {
     pub payloads: Vec<FuzzingObject>,
     pub manifest: FuzzingObject,
     pub crl: FuzzingObject,
     pub conf: RepoConfig,
     pub certificate: FuzzingObject,
+    pub child_repos: Vec<FuzzingRepository>,
     pub repo_info: RepoInfo,
 }
 
@@ -364,6 +473,7 @@ impl FuzzingRepository {
         crl: FuzzingObject,
         conf: RepoConfig,
         certificate: FuzzingObject,
+        child_repos: Vec<FuzzingRepository>,
         repo_info: RepoInfo,
     ) -> Self {
         Self {
@@ -372,6 +482,7 @@ impl FuzzingRepository {
             crl,
             conf,
             certificate,
+            child_repos,
             repo_info,
         }
     }
@@ -397,6 +508,10 @@ impl FuzzingRepository {
 
         let cert_b = self.certificate.tree.encode();
         output.push((parent_data_dir.clone() + &self.certificate.name, cert_b));
+
+        for r in &self.child_repos {
+            output.extend(r.serialize());
+        }
         output
     }
 
@@ -428,6 +543,10 @@ impl FuzzingRepository {
         self.crl.fix_fields(all_fields, None);
         values.push(self.crl.asn1_name_and_hash());
 
+        for obj in &self.child_repos {
+            values.push(obj.certificate.asn1_name_and_hash());
+        }
+
         let hashlist = Sequence::new(values);
         self.manifest.fix_fields(all_fields, Some(hashlist.encode_content()));
 
@@ -443,6 +562,9 @@ impl FuzzingRepository {
             values.push(obj.asn1_name_and_hash());
         }
         values.push(self.crl.asn1_name_and_hash());
+        for c in &self.child_repos{
+            values.push(c.certificate.asn1_name_and_hash());
+        }
 
         let hashlist = Sequence::new(values).encode();
         hashlist
@@ -545,6 +667,70 @@ pub struct FuzzingObject {
     pub name: String,
 }
 
+impl Serialize for FuzzingObject {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        // Implement serialization logic here.
+        // For example, serialize as a tuple:
+        let tuple = (
+            &self.op_type,
+            &self.parent_key.file_uri,
+            &self.child_key.file_uri,
+            &self.tree,
+            &self.conf,
+            &self.name,
+        );
+        tuple.serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for FuzzingObject {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        // Implement deserialization logic here.
+        // For example, deserialize from a tuple:
+        struct FuzzingObjectVisitor;
+
+        impl<'de> Visitor<'de> for FuzzingObjectVisitor {
+            type Value = FuzzingObject;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("a tuple representing a FuzzingObject")
+            }
+
+            fn visit_seq<V>(self, mut seq: V) -> Result<FuzzingObject, V::Error>
+            where
+                V: de::SeqAccess<'de>,
+            {
+                let op_type = seq.next_element()?.ok_or_else(|| de::Error::invalid_length(0, &self))?;
+                let parent_key_t = seq.next_element()?.ok_or_else(|| de::Error::invalid_length(1, &self))?;
+                let parent_key = repository::read_cert_key(parent_key_t);
+                let child_key_t = seq.next_element()?.ok_or_else(|| de::Error::invalid_length(2, &self))?;
+                let child_key = repository::read_cert_key(child_key_t);
+
+                let tree = seq.next_element()?.ok_or_else(|| de::Error::invalid_length(3, &self))?;
+                let conf = seq.next_element()?.ok_or_else(|| de::Error::invalid_length(4, &self))?;
+                let name = seq.next_element()?.ok_or_else(|| de::Error::invalid_length(5, &self))?;
+
+                Ok(FuzzingObject {
+                    op_type,
+                    parent_key,
+                    child_key,
+                    tree,
+                    conf,
+                    name,
+                })
+            }
+        }
+
+        deserializer.deserialize_tuple(6, FuzzingObjectVisitor)
+    }
+}
+
 impl FuzzingObject {
     pub fn new(
         op_type: OpType,
@@ -575,7 +761,6 @@ impl FuzzingObject {
             None => "None",
         };
         // println!("Mutation: {:?}, {}", self.tree.mutations, info);
-
         self.fix_fields(false, None);
     }
 
@@ -830,10 +1015,10 @@ impl FuzzingObject {
         if all_fields {
             self.fix_aki();
             self.fix_validty();
+            self.fix_names();
 
             if self.op_type != OpType::CRL {
                 self.fix_ski();
-                self.fix_names();
                 self.fix_sid();
                 self.fix_crl_location();
                 self.fix_subject_key();

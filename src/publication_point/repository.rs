@@ -135,7 +135,7 @@ pub fn initialize_repo(conf: &mut RepoConfig, new_cas: bool, session_id: Option<
     create_default_ta(new_cas, conf);
 
     // TODO RE-ENABLE
-    // create_default_ca(new_cas, conf);
+    create_default_ca(new_cas, conf);
     //create_multiple_cas(new_cas, conf);
 
     // if new_cas {
@@ -1826,6 +1826,7 @@ pub struct KeyAndSigner {
     pub keyid: Option<KeyId>,
     pub private_key: PKey<Private>,
     pub key_only: bool,
+    pub file_uri: String,
 }
 
 impl KeyAndSigner {
@@ -1903,6 +1904,7 @@ pub struct OctoRPKIConfig {}
 
 pub struct ValidatorConfig {}
 
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct RepoConfig {
     pub BASE_DATA_DIR: String,
     pub BASE_REPO_DIR: String,
@@ -1944,6 +1946,8 @@ pub struct RepoConfig {
     pub IPBlocks: Vec<(u8, IpBlock)>,
     pub IPv4: Vec<Ipv4Net>,
     pub IPv6: Vec<Ipv6Net>,
+
+    pub DEBUG: bool,
 }
 impl Clone for RepoConfig {
     fn clone(&self) -> RepoConfig {
@@ -1975,6 +1979,7 @@ impl Clone for RepoConfig {
             IPBlocks: self.IPBlocks.clone(),
             IPv4: self.IPv4.clone(),
             IPv6: self.IPv6.clone(),
+            DEBUG: self.DEBUG.clone(),
         };
     }
 }
@@ -2104,6 +2109,7 @@ impl Default for RepoConfig {
             IPBlocks: vec![],
             IPv4: vec![],
             IPv6: vec![],
+            DEBUG: false,
         }
     }
 }
@@ -2182,6 +2188,7 @@ pub fn make_cert_key(file_uri: &str, sig_algo: &str) -> KeyAndSigner {
         keyid,
         private_key,
         key_only,
+        file_uri: file_uri.to_string(),
     };
 }
 
@@ -2243,6 +2250,7 @@ pub fn read_cert_key(file_uri: &str) -> KeyAndSigner {
         keyid,
         private_key,
         key_only,
+        file_uri: file_uri.to_string(),
     };
 }
 

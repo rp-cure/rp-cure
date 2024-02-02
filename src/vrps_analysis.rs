@@ -2356,3 +2356,13 @@ pub struct SOCharacteristics {
     pub certChars: Option<CertCharacteristics>,
     pub is_ber: bool,
 }
+
+
+
+
+
+// <notification xmlns="http://www.ripe.net/rpki/rrdp" version="1" session_id="123" serial="3">
+//     <snapshot uri="https://example.com/last/snapshot.xml" hash="24fa[...]"/>
+//     <delta serial="3" uri="https://example.com/chri/delta.xml" hash="cd34[...]"/>
+//     <delta serial="2" uri="https://example.com/smas/delta.xml" hash="44a8[...]"/>
+// </notification>

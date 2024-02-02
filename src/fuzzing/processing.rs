@@ -8,6 +8,7 @@ use std::{
 
 use crate::{
     asn1p,
+    fuzzing_repo::FuzzingPP,
     process_util::{self, ObjectFactory, SerializableObject},
     publication_point::{
         fuzzing_interface,
@@ -534,7 +535,7 @@ pub fn generate_from_files_plain_inner(
     ret
 }
 
-pub fn read_objects(stream: &UnixListener) -> Option<GenerationBatch> {
+pub fn read_objects(stream: &UnixListener) -> Option<FuzzingPP> {
     process_util::get_batch(stream)
 }
 
@@ -559,9 +560,10 @@ pub fn generate_from_files_plain(
 
     let batch = batch.unwrap();
 
-    let ret = generate_from_files_plain_inner(batch.contents, priv_keys, pub_keys, ca_keys, &conf, roas, crls, mfts, batch.id);
+    // let ret = generate_from_files_plain_inner(batch.contents, priv_keys, pub_keys, ca_keys, &conf, roas, crls, mfts, batch.id);
 
-    process_util::acknowledge(conf.id, batch.id);
+    // process_util::acknowledge(conf.id, batch.id);
 
-    Some(ret)
+    // Some(ret)
+    None
 }

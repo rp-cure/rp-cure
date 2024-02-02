@@ -221,8 +221,9 @@ fn fuzz(mut conf: FuzzConfig, folders: Option<Vec<String>>) {
     let rrdp_types = vec!["notification", "snapshot", "delta"];
 
     util::start_generation("./bin/generator", "roa", &conf.amount.to_string());
+    util::start_signing("./bin/generator");
 
-    let mut factory = process_util::ObjectFactory::new(50, "/tmp/sock");
+    let mut factory = process_util::ObjectFactory::new(50, "/tmp/fuzzing");
 
     if !rrdp_types.contains(&conf.typ.to_string().as_str()) {
         // conf.amount = 100;
@@ -322,20 +323,31 @@ pub fn test_keys() {
 }
 
 fn main() {
-    // test_keys();
+    // let ve = vec![1, 2, 3, 4, 5, 6, 7, 8];
+    // let mut v = Bytes::from(ve);
+    // bcder::length::Length::take_from(&mut v, Mode::Der).unwrap();
     // return;
-
-    // let conf = repository::create_default_config("my.server.com".to_string());
-    // let roa = repository::create_random_roa(&conf).0;
-    // println!("{:?}", base64::encode(roa.clone()));
-
-    // object_generation::get_key_id(roa);
-    // return;
-
     util::clear_caches();
 
     let mut conf = repository::create_default_config("my.server.com".to_string());
-    repository::initialize_repo(&mut conf, false, None);
+    generation_interface::pp_test();
+    return;
+    // let args: Vec<String> = env::args().collect();
+
+    // // Check if the arguments include `--add-roa`
+    // if args.len() > 2 && args[1] == "--add-roa" {
+    //     repository::add_roa_str(&args[2], false, &conf);
+
+    //     // // Check if the roa-content is provided
+    //     // if args.len() > 2 {
+    //     //     let roa_content = &args[2];
+    //     // }
+    // }
+    // else{
+    //     repository::initialize_repo(&mut conf, false, None);
+    // }
+    // return;
+
     // let re = &util::create_example_roas(1)[0];
     // return;
     // // println!("Roa {:?}", base64::encode(re.0.clone()));
@@ -343,8 +355,8 @@ fn main() {
 
     // generation_interface::test_generation();
     // generation_interface::full_test();
-    generation_interface::pp_test();
-    return;
+    // generation_interface::pp_test();
+    // return;
 
     util::clear_caches();
 
@@ -366,7 +378,11 @@ fn main() {
     let no_ee = false;
     let typ = parse_type(&type_name);
     let subtype = "none".to_string();
-    let amount = 1;
+    let amount = match &env::args().collect::<Vec<String>>().len() > &2 {
+        true => env::args().collect::<Vec<String>>()[2].parse::<u32>().unwrap_or(1),
+        false => 1,
+    };
+    // let amount = 1;
     let dont_move = false;
     let id = 0;
     let raw = false;
@@ -393,7 +409,7 @@ fn main() {
         raw,
     };
 
-    let command: String = env::args().collect::<Vec<String>>()[1];
+    let command = &env::args().collect::<Vec<String>>()[1];
     // let c = res.command.as_str();
     match command.as_str() {
         "run" => {
@@ -423,6 +439,9 @@ fn main() {
         "generate" => {
             generate(fuzz_config);
             return;
+        }
+        "signing" => {
+            fuzzing_repo::signing_loop(fuzz_config, amount);
         }
         _ => unreachable!(),
     }

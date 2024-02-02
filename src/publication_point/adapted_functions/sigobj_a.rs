@@ -6,7 +6,7 @@ use bcder::encode::PrimitiveContent;
 use bcder::encode::Values;
 use bcder::string::OctetStringSource;
 use bcder::{decode, encode};
-use bcder::{xerr, Captured, Mode, OctetString, Oid, Tag};
+use bcder::{ Captured, Mode, OctetString, Oid, Tag};
 use bytes::Bytes;
 use openssl::hash::MessageDigest as OMessageDigest;
 use openssl::pkey::PKey;
@@ -24,6 +24,8 @@ use rpki::repository::x509::{update_once, Name, Serial, Time, ValidationError, V
 use rpki::uri;
 use std::str::FromStr;
 use std::{cmp, io};
+use rpki::xml::decode::Error::Malformed;
+
 
 //------------ SignedObject --------------------------------------------------
 
@@ -64,13 +66,13 @@ impl SignedObject {
     }
 
     /// Decodes the object’s content.
-    pub fn decode_content<F, T>(&self, op: F) -> Result<T, decode::Error>
-    where
-        F: FnOnce(&mut decode::Constructed<OctetStringSource>) -> Result<T, decode::Error>,
-    {
-        // XXX Let’s see if using DER here at least holds.
-        Mode::Der.decode(self.content.to_source(), op)
-    }
+    // pub fn decode_content<F, T>(&self, op: F) -> Result<T, decode::ContentError>
+    // where
+    //     F: FnOnce(&mut decode::Constructed<OctetStringSource>) -> Result<T, decode::ContentError>,
+    // {
+    //     // XXX Let’s see if using DER here at least holds.
+    //     Mode::Der.decode(self.content.to_source(), op)
+    // }
 
     /// Returns a reference to the certificate the object is signed with.
     pub fn cert(&self) -> &Bytes {
@@ -92,71 +94,71 @@ impl SignedObject {
 ///
 impl SignedObject {
     /// Decodes a signed object from the given source.
-    pub fn decode<S: decode::Source>(source: S, strict: bool) -> Result<Self, S::Err> {
-        if strict { Mode::Der } else { Mode::Ber }.decode(source, Self::take_from)
-    }
+    // pub fn decode<S: decode::Source>(source: S, strict: bool) -> Result<Self, S::Error> {
+    //     if strict { Mode::Der } else { Mode::Ber }.decode(source, Self::take_from)
+    // }
 
-    /// Takes a signed object from an encoded constructed value.
-    pub fn take_from<S: decode::Source>(cons: &mut decode::Constructed<S>) -> Result<Self, S::Err> {
-        cons.take_sequence(|cons| {
-            // ContentInfo
-            oid::SIGNED_DATA.skip_if(cons)?; // contentType
-            cons.take_constructed_if(Tag::CTX_0, |cons| {
-                // content
-                cons.take_sequence(|cons| {
-                    // SignedData
-                    cons.skip_u8_if(3)?; // version -- must be 3
-                    let digest_algorithm = DigestAlgorithm::take_set_from(cons)?;
-                    let (content_type, content) = {
-                        cons.take_sequence(|cons| {
-                            // encapContentInfo
-                            Ok((Oid::take_from(cons)?, cons.take_constructed_if(Tag::CTX_0, OctetString::take_from)?))
-                        })?
-                    };
-                    let cert = cons.take_constructed_if(
-                        // certificates
-                        Tag::CTX_0,
-                        Cert::take_from,
-                    )?;
-                    // no crls
-                    let (sid, attrs, signature) = {
-                        // signerInfos
-                        cons.take_set(|cons| {
-                            cons.take_sequence(|cons| {
-                                cons.skip_u8_if(3)?;
-                                let sid = cons.take_value_if(Tag::CTX_0, |content| KeyIdentifier::from_content(content))?;
-                                let alg = DigestAlgorithm::take_from(cons)?;
-                                if alg != digest_algorithm {
-                                    return Err(decode::Malformed.into());
-                                }
-                                let attrs = SignedAttrs::take_from(cons)?;
-                                if attrs.2 != content_type {
-                                    return Err(decode::Malformed.into());
-                                }
-                                let signature =
-                                    Signature::new(SignatureAlgorithm::cms_take_from(cons)?, OctetString::take_from(cons)?.into_bytes());
-                                // no unsignedAttributes
-                                Ok((sid, attrs, signature))
-                            })
-                        })?
-                    };
-                    let cert = cert.encode_ref().to_captured(Mode::Der).into_bytes();
-                    Ok(Self {
-                        digest_algorithm,
-                        content_type,
-                        content,
-                        cert,
-                        sid,
-                        signed_attrs: attrs.0,
-                        signature,
-                        message_digest: attrs.1,
-                        signing_time: attrs.3,
-                        binary_signing_time: attrs.4,
-                    })
-                })
-            })
-        })
-    }
+    // /// Takes a signed object from an encoded constructed value.
+    // pub fn take_from<S: decode::Source>(cons: &mut decode::Constructed<S>) -> Result<Self, S::Error> {
+    //     cons.take_sequence(|cons| {
+    //         // ContentInfo
+    //         oid::SIGNED_DATA.skip_if(cons)?; // contentType
+    //         cons.take_constructed_if(Tag::CTX_0, |cons| {
+    //             // content
+    //             cons.take_sequence(|cons| {
+    //                 // SignedData
+    //                 cons.skip_u8_if(3)?; // version -- must be 3
+    //                 let digest_algorithm = DigestAlgorithm::take_set_from(cons)?;
+    //                 let (content_type, content) = {
+    //                     cons.take_sequence(|cons| {
+    //                         // encapContentInfo
+    //                         Ok((Oid::take_from(cons)?, cons.take_constructed_if(Tag::CTX_0, OctetString::take_from)?))
+    //                     })?
+    //                 };
+    //                 let cert = cons.take_constructed_if(
+    //                     // certificates
+    //                     Tag::CTX_0,
+    //                     Cert::take_from,
+    //                 )?;
+    //                 // no crls
+    //                 let (sid, attrs, signature) = {
+    //                     // signerInfos
+    //                     cons.take_set(|cons| {
+    //                         cons.take_sequence(|cons| {
+    //                             cons.skip_u8_if(3)?;
+    //                             let sid = cons.take_value_if(Tag::CTX_0, |content| KeyIdentifier::from_content(content))?;
+    //                             let alg = DigestAlgorithm::take_from(cons)?;
+    //                             if alg != digest_algorithm {
+    //                                 return Err(decode::Malformed.into());
+    //                             }
+    //                             let attrs = SignedAttrs::take_from(cons)?;
+    //                             if attrs.2 != content_type {
+    //                                 return Err(decode::Malformed.into());
+    //                             }
+    //                             let signature =
+    //                                 Signature::new(SignatureAlgorithm::cms_take_from(cons)?, OctetString::take_from(cons)?.into_bytes());
+    //                             // no unsignedAttributes
+    //                             Ok((sid, attrs, signature))
+    //                         })
+    //                     })?
+    //                 };
+    //                 let cert = cert.encode_ref().to_captured(Mode::Der).into_bytes();
+    //                 Ok(Self {
+    //                     digest_algorithm,
+    //                     content_type,
+    //                     content,
+    //                     cert,
+    //                     sid,
+    //                     signed_attrs: attrs.0,
+    //                     signature,
+    //                     message_digest: attrs.1,
+    //                     signing_time: attrs.3,
+    //                     binary_signing_time: attrs.4,
+    //                 })
+    //             })
+    //         })
+    //     })
+    // }
 
     pub fn encode_ref_custom<V: encode::Values>(
         &self,
@@ -309,60 +311,60 @@ impl SignedAttrs {
     ///
     /// If strict is true, any unknown signed attributes are rejected, if
     /// strict is false they will be ignored.
-    #[allow(clippy::type_complexity)]
-    fn take_from_with_mode<S: decode::Source>(
-        cons: &mut decode::Constructed<S>,
-        strict: bool,
-    ) -> Result<(Self, MessageDigest, Oid<Bytes>, Option<Time>, Option<u64>), S::Err> {
-        let mut message_digest = None;
-        let mut content_type = None;
-        let mut signing_time = None;
-        let mut binary_signing_time = None;
-        let raw = cons.take_constructed_if(Tag::CTX_0, |cons| {
-            cons.capture(|cons| {
-                while let Some(()) = cons.take_opt_sequence(|cons| {
-                    let oid = Oid::take_from(cons)?;
-                    if oid == oid::CONTENT_TYPE {
-                        Self::take_content_type(cons, &mut content_type)
-                    } else if oid == oid::MESSAGE_DIGEST {
-                        Self::take_message_digest(cons, &mut message_digest)
-                    } else if oid == oid::SIGNING_TIME {
-                        Self::take_signing_time(cons, &mut signing_time)
-                    } else if oid == oid::AA_BINARY_SIGNING_TIME {
-                        Self::take_bin_signing_time(cons, &mut binary_signing_time)
-                    } else if !strict {
-                        cons.skip_all()
-                    } else {
-                        xerr!(Err(decode::Malformed.into()))
-                    }
-                })? {}
-                Ok(())
-            })
-        })?;
-        if raw.len() > 0xFFFF {
-            return Err(decode::Unimplemented.into());
-        }
-        let message_digest = match message_digest {
-            Some(some) => MessageDigest(some.into_bytes()),
-            None => return Err(decode::Malformed.into()),
-        };
-        let content_type = match content_type {
-            Some(some) => some,
-            None => return Err(decode::Malformed.into()),
-        };
-        Ok((Self(raw), message_digest, content_type, signing_time, binary_signing_time))
-    }
+    // #[allow(clippy::type_complexity)]
+    // fn take_from_with_mode<S: decode::Source>(
+    //     cons: &mut decode::Constructed<S>,
+    //     strict: bool,
+    // ) -> Result<(Self, MessageDigest, Oid<Bytes>, Option<Time>, Option<u64>), S::Err> {
+    //     let mut message_digest = None;
+    //     let mut content_type = None;
+    //     let mut signing_time = None;
+    //     let mut binary_signing_time = None;
+    //     let raw = cons.take_constructed_if(Tag::CTX_0, |cons| {
+    //         cons.capture(|cons| {
+    //             while let Some(()) = cons.take_opt_sequence(|cons| {
+    //                 let oid = Oid::take_from(cons)?;
+    //                 if oid == oid::CONTENT_TYPE {
+    //                     Self::take_content_type(cons, &mut content_type)
+    //                 } else if oid == oid::MESSAGE_DIGEST {
+    //                     Self::take_message_digest(cons, &mut message_digest)
+    //                 } else if oid == oid::SIGNING_TIME {
+    //                     Self::take_signing_time(cons, &mut signing_time)
+    //                 } else if oid == oid::AA_BINARY_SIGNING_TIME {
+    //                     Self::take_bin_signing_time(cons, &mut binary_signing_time)
+    //                 } else if !strict {
+    //                     cons.skip_all()
+    //                 } else {
+    //                     xerr!(Err(decode::Malformed.into()))
+    //                 }
+    //             })? {}
+    //             Ok(())
+    //         })
+    //     })?;
+    //     if raw.len() > 0xFFFF {
+    //         return Err(decode::Unimplemented.into());
+    //     }
+    //     let message_digest = match message_digest {
+    //         Some(some) => MessageDigest(some.into_bytes()),
+    //         None => return Err(decode::Malformed.into()),
+    //     };
+    //     let content_type = match content_type {
+    //         Some(some) => some,
+    //         None => return Err(decode::Malformed.into()),
+    //     };
+    //     Ok((Self(raw), message_digest, content_type, signing_time, binary_signing_time))
+    // }
 
     /// Takes the signed attributes from the beginning of a constructed value.
     ///
     /// Returns the raw signed attrs, the message digest, the content type
     /// object identifier, and the two optional signing times.
-    #[allow(clippy::type_complexity)]
-    pub fn take_from<S: decode::Source>(
-        cons: &mut decode::Constructed<S>,
-    ) -> Result<(Self, MessageDigest, Oid<Bytes>, Option<Time>, Option<u64>), S::Err> {
-        Self::take_from_with_mode(cons, true)
-    }
+    // #[allow(clippy::type_complexity)]
+    // pub fn take_from<S: decode::Source>(
+    //     cons: &mut decode::Constructed<S>,
+    // ) -> Result<(Self, MessageDigest, Oid<Bytes>, Option<Time>, Option<u64>), S::Err> {
+    //     Self::take_from_with_mode(cons, true)
+    // }
 
     /// Takes the signed attributes from the beginning of a constructed value.
     ///
@@ -374,12 +376,12 @@ impl SignedAttrs {
     ///
     /// Returns the raw signed attrs, the message digest, the content type
     /// object identifier, and the two optional signing times.
-    #[allow(clippy::type_complexity)]
-    pub fn take_from_signed_message<S: decode::Source>(
-        cons: &mut decode::Constructed<S>,
-    ) -> Result<(Self, MessageDigest, Oid<Bytes>, Option<Time>, Option<u64>), S::Err> {
-        Self::take_from_with_mode(cons, false)
-    }
+    // #[allow(clippy::type_complexity)]
+    // pub fn take_from_signed_message<S: decode::Source>(
+    //     cons: &mut decode::Constructed<S>,
+    // ) -> Result<(Self, MessageDigest, Oid<Bytes>, Option<Time>, Option<u64>), S::Err> {
+    //     Self::take_from_with_mode(cons, false)
+    // }
 
     /// Parses the Content Type attribute.
     ///

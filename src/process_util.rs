@@ -1,44 +1,59 @@
 use std::{
     collections::{HashMap, HashSet},
     fs,
-    io::{Read, Write},
+    io::{self, ErrorKind, Read, Write},
     os::unix::net::{UnixListener, UnixStream},
 };
 
 use reqwest::Response;
 
-use crate::{coverage_interface, fuzzing_loop::SerializableBatch};
+use crate::{coverage_interface, fuzzing_loop::SerializableBatch, fuzzing_repo::FuzzingPP};
 
-fn accept_new_client(stream: &UnixListener) -> String {
-    let op = stream.accept();
-    if op.is_err() {
-        return "".to_string();
+fn accept_new_client(stream: &UnixListener) -> io::Result<String> {
+    println!("Attempting to accept new client");
+
+    match stream.accept() {
+        Ok((mut socket, _)) => {
+            let mut buffer = String::new();
+            println!("Socket accepted new connection");
+            match socket.read_to_string(&mut buffer) {
+                Ok(_) => Ok(buffer),
+                Err(ref e) if e.kind() == ErrorKind::WouldBlock => {
+                    // No data available right now
+                    Ok(String::new())
+                }
+                Err(e) => Err(e),
+            }
+        }
+        Err(ref e) if e.kind() == ErrorKind::WouldBlock => {
+            // No incoming connection right now
+            Ok(String::new())
+        }
+        Err(e) => Err(e),
     }
-    let (mut s, _) = op.unwrap();
-
-    let mut b = String::new();
-    s.read_to_string(&mut b).unwrap();
-    return b;
 }
 
-fn read_all_clients(stream: &UnixListener) -> Vec<String> {
+fn read_all_clients(stream: &UnixListener) -> io::Result<Vec<String>> {
+    stream.set_nonblocking(true)?;
+
     let mut ret = vec![];
 
     loop {
-        let re = accept_new_client(stream);
+        let re = accept_new_client(stream)?;
         if re.is_empty() {
             break;
         }
         ret.push(re);
     }
-    ret
-}
 
+    Ok(ret)
+}
 pub fn send_new_data(data: String) {
     send_new_data_s(data, "/tmp/sock");
 }
 
 pub fn send_new_data_s(data: String, socket: &str) {
+    println!("Trying to connect to socket {} with data of length {}", socket, data.len());
     let mut stream = match UnixStream::connect(socket) {
         Err(er) => {
             println!("An Error occured {:?}", er);
@@ -46,11 +61,13 @@ pub fn send_new_data_s(data: String, socket: &str) {
         }
         Ok(stream) => stream,
     };
+    println!("Connected");
 
     match stream.write_all(&data.as_bytes()) {
         Err(_) => return,
         Ok(_) => {}
     }
+    println!("finished writing data");
 
     drop(stream);
 }
@@ -70,6 +87,13 @@ pub fn acknowledge(worker_id: u8, batch_id: u64) {
 
 pub fn count_acks(stream: &UnixListener) -> HashMap<u8, u16> {
     let ret = read_all_clients(stream);
+    if ret.is_err() {
+        return HashMap::new();
+    }
+    let ret = ret.unwrap();
+    if ret.is_empty() {
+        return HashMap::new();
+    }
     let mut map = HashMap::new();
 
     for v in ret {
@@ -89,6 +113,10 @@ pub fn count_acks(stream: &UnixListener) -> HashMap<u8, u16> {
 pub fn get_responses(stream: &UnixListener) -> Vec<ReponseObject> {
     let arr = read_all_clients(stream);
     let mut ret = vec![];
+    if arr.is_err() {
+        return Vec::new();
+    }
+    let arr = arr.unwrap();
 
     for v in arr {
         let val = serde_json::from_str::<ReponseObject>(&v).unwrap();
@@ -137,7 +165,10 @@ pub struct GenerationBatch {
 }
 
 pub fn send_new_pp(data: String) {
-    send_new_data_s(data, "/tmp/fuzzing");
+    //send_new_data_s(data, "/tmp/fuzzing");
+
+    let random_name = rand::random::<u64>().to_string();
+    fs::write(&("/tmp/pp_files".to_string() + &random_name), data).unwrap();
 }
 
 // Factory to send PPs from Generation to the Fuzzing Loop
@@ -179,7 +210,6 @@ pub struct ObjectFactory {
 impl ObjectFactory {
     pub fn new(limit: u16, socket: &str) -> ObjectFactory {
         fs::remove_file(&socket).unwrap_or_default();
-
         let s = UnixListener::bind(&socket).unwrap();
         s.set_nonblocking(true).unwrap();
 
@@ -198,9 +228,30 @@ impl ObjectFactory {
         }
     }
 
+    pub fn get_object_new() -> Option<SerializableBatch>{
+        // Read all filenames in directory
+        let files = fs::read_dir("/tmp/pp_files").unwrap();
+        for file in files {
+            let file = file.unwrap();
+            let path = file.path();
+            // let path = path.to_str().unwrap();
+            let s = fs::read_to_string(path).unwrap();
+            let sbatch = serde_json::from_str::<SerializableBatch>(&s).unwrap();
+            return Some(sbatch);
+        }
+        return None;
+    }
+
     pub fn get_object(&mut self) -> Option<SerializableBatch> {
+        return Self::get_object_new();
+
+
         let new_objs = read_all_clients(&self.stream);
-        self.objects.extend(new_objs);
+        if new_objs.is_err() {
+            return None;
+        }
+
+        self.objects.extend(new_objs.unwrap());
 
         if self.objects.len() >= self.limit.into() {
             stop_generation();
@@ -250,6 +301,11 @@ impl CoverageFactory {
 
     pub fn get_coverages(&mut self) -> Vec<CoverageObject> {
         let new_objs = read_all_clients(&self.stream);
+        if new_objs.is_err() {
+            return vec![];
+        }
+
+        let new_objs = new_objs.unwrap();
         let mut ret = vec![];
         for obj in new_objs {
             let res = serde_json::from_str::<CoverageObject>(&obj).unwrap();
@@ -271,7 +327,7 @@ pub struct GenerationFactory {
 
 impl GenerationFactory {
     pub fn new(limit: u16, amount_sockets: u8) -> GenerationFactory {
-        let socket = "/tmp/ack".to_string();
+        let socket = "/tmp/responses".to_string();
         fs::remove_file(&socket).unwrap_or_default();
 
         let s = UnixListener::bind(&socket).unwrap();
@@ -340,15 +396,37 @@ impl GenerationFactory {
 
         // return true;
     }
+
+    pub fn get_responses(&self) -> Vec<FuzzingPP> {
+        let arr = read_all_clients(&self.stream);
+        if arr.is_err() {
+            return vec![];
+        }
+        let arr = arr.unwrap();
+        let mut ret = vec![];
+        if arr.is_empty() {
+            return ret;
+        }
+        for v in arr {
+            let val = serde_json::from_str::<FuzzingPP>(&v).unwrap();
+            ret.push(val);
+        }
+
+        ret
+    }
 }
 
-pub fn get_batch(stream: &UnixListener) -> Option<GenerationBatch> {
+pub fn get_batch(stream: &UnixListener) -> Option<FuzzingPP> {
     let re = accept_new_client(stream);
-    if re.is_empty() {
+    if re.is_err() {
         return None;
     }
 
-    let ret = serde_json::from_str::<GenerationBatch>(&re).unwrap();
+    let re = re.unwrap();
+    if re.is_empty() {
+        return None;
+    }
+    let ret = serde_json::from_str::<FuzzingPP>(&re).unwrap();
     return Some(ret);
 }
 

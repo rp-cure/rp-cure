@@ -3,15 +3,17 @@ use std::{
     collections::{HashMap, HashSet, VecDeque},
     fs,
     path::Path,
+    sync::{mpsc::channel, Arc, Mutex},
     thread::{self, current},
     time::Duration,
 };
 
 use bytes::Bytes;
 use rand::{prelude::Distribution, seq::SliceRandom, Rng};
+use threadpool::ThreadPool;
 
 use crate::{
-    asn1p,
+    asn1p, consts,
     fuzzing::processing,
     fuzzing_repo::FuzzingPP,
     process_util::{self, CoverageFactory, GenerationBatch, GenerationFactory, ObjectInfo},
@@ -395,7 +397,7 @@ impl FuzzingBatch {
     pub fn serialize(&self) -> String {
         let sb = SerializableBatch {
             batch_id: self.batch_id,
-            batch_content: self.batch_pp.serialize(),
+            batch_content: self.batch_pp.repositorify(),
         };
         serde_json::to_string(&sb).unwrap()
     }
@@ -416,14 +418,17 @@ pub fn start_generation() {
 
     // How many times to divide a generation
     let factor = 10;
+    let conf = repository::create_default_config(consts::domain.to_string());
 
-    let pp = fuzzing_repo::construct_PP();
+    let pp = fuzzing_repo::construct_PP(conf);
 
     let batch = FuzzingBatch {
         batch_id: generate_random_u64(),
         batch_pp: pp,
         batch_score: 1.0,
     };
+
+    let mut generation_factory = GenerationFactory::new(100, 1);
 
     fuzzing_queue.insert(batch);
 
@@ -433,17 +438,29 @@ pub fn start_generation() {
     loop {
         fuzzing_queue.age();
 
+        let new_pps = generation_factory.get_responses();
+        for pp in new_pps {
+            let batch = FuzzingBatch {
+                batch_id: generate_random_u64(),
+                batch_pp: pp,
+                batch_score: 1.0,
+            };
+            println!("Got new batch");
+            fuzzing_queue.insert(batch);
+        }
+
         // If nothing is in queue -> Target is still processing all requests
         while fuzzing_queue.elements.is_empty() {
             thread::sleep(Duration::from_millis(50))
         }
+
         let batch = fuzzing_queue.get_element();
+
         let serialized = batch.serialize();
 
         map.insert(batch.batch_id, batch);
 
         process_util::send_new_pp(serialized.clone());
-
         // while responses.is_none() {
         //     thread::sleep(Duration::from_millis(1000));
         //     // If responses is none, the data could not been sent, so we need to re-try
@@ -454,7 +471,7 @@ pub fn start_generation() {
         let responses = coverage_factory.get_coverages();
 
         for re in responses {
-            println!("Coverage {}", re.line_coverage);
+            // println!("Coverage {}", re.line_coverage);
             if first_run {
                 first_run = false;
                 know_functions.extend(re.function_hashes.clone());
@@ -472,18 +489,18 @@ pub fn start_generation() {
             let score = set.len() as f32 + 1.0;
 
             know_functions.extend(set);
-
+            println!("Starting split");
             let new_pps = batch.batch_pp.split(factor);
+
             for pp in new_pps {
-                let new_batch = FuzzingBatch {
-                    batch_id: generate_random_u64(),
-                    batch_pp: pp,
-                    batch_score: score,
-                };
-                fuzzing_queue.insert(new_batch);
+                let serialized = serde_json::to_string(&pp).unwrap();
+                println!("Sending batch");
+                generation_factory.send_batch(serialized);
             }
+
             println!("Known Functions: {}", know_functions.len());
         }
+        thread::sleep(Duration::from_millis(50));
 
         while process_util::is_stopped() {
             thread::sleep(Duration::from_millis(100));

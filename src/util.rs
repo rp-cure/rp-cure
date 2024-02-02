@@ -498,11 +498,28 @@ pub fn start_generation(binary_location: &str, obj_type: &str, obj_amount: &str)
     let mut children = vec![];
     let amount = 1;
     println!("Starting {} Processes", amount);
+
     for i in 0..amount {
         let child = Command::new(binary_location)
             .arg("generate")
             .arg(&("--typ=".to_string() + obj_type))
             .arg(&("--amount=".to_string() + obj_amount))
+            .spawn()
+            .expect("failed to execute child");
+        children.push(child);
+    }
+    children
+}
+
+pub fn start_signing(binary_location: &str) -> Vec<Child> {
+    let mut children = vec![];
+    let amount = 1;
+    println!("Starting {} Processes", amount);
+
+    for i in 0..amount {
+        let child = Command::new(binary_location)
+            .arg("signing")
+            .arg(&i.to_string())
             .spawn()
             .expect("failed to execute child");
         children.push(child);
@@ -646,8 +663,8 @@ pub fn clear_repo(conf: &RepoConfig, _: u32) {
     let cwd = get_cwd();
 
     remove_folder_content(&r);
-    fs::remove_dir_all(&r).unwrap();
-    fs::create_dir_all(&r).unwrap();
+    fs::remove_dir_all(&r);
+    fs::create_dir_all(&r);
     remove_folder_content(&(cwd.clone() + "/rpki_cache_client"));
     remove_folder_content(&(cwd.clone() + "/rpki_cache_octo"));
     remove_folder_content(&(cwd.clone() + "/rpki_cache_fort"));
@@ -1455,7 +1472,6 @@ pub fn start_fuzzing(conf: FuzzConfig, factory: &mut ObjectFactory) {
 
         if new_obj.is_none() {
             thread::sleep(Duration::from_millis(200));
-            println!("No objects found");
             continue;
         }
 
