@@ -86,8 +86,6 @@ impl fmt::Display for OpType {
         }
         panic!("Error: Unknown OpType");
 
-        // or, alternatively:
-        // fmt::Debug::fmt(self, f)
     }
 }
 
